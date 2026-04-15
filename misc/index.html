@@ -1,0 +1,2492 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapa de Tesouraria — Protótipo</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: { 50:'#eef6ff',100:'#d9eaff',500:'#2563eb',600:'#1d4ed8',700:'#1e40af',900:'#0b1e4a' },
+          ink:   { 900:'#0b1220',800:'#111827',700:'#1f2937',600:'#374151' },
+        },
+        fontFamily: { sans: ['Inter','system-ui','sans-serif'], mono: ['JetBrains Mono','monospace'] }
+      }
+    }
+  }
+</script>
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .sidebar-item.active { background: rgba(255,255,255,.08); color: #fff; border-left-color: #60a5fa; }
+  .sidebar-item { border-left: 3px solid transparent; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+  .kpi-card { transition: transform .15s ease; }
+  .kpi-card:hover { transform: translateY(-2px); }
+  .scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+  .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  .mask { filter: blur(4px); transition: filter .2s; }
+  .mask:hover, .mask:active { filter: none; }
+  .animate-fade { animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* Sidebar: drawer no mobile, fixo em desktop */
+  #sidebar { transform: translateX(-100%); transition: transform .25s ease; }
+  #sidebar.open { transform: translateX(0); }
+  @media (min-width: 1024px) {
+    #sidebar { transform: translateX(0); }
+    #sidebar-backdrop { display: none !important; }
+  }
+  /* Prevent body scroll when drawer open on mobile */
+  body.no-scroll { overflow: hidden; }
+  /* Tabela responsive: mantém scroll horizontal em telas pequenas */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div id="auth-screen" class="hidden fixed inset-0 z-50 bg-gradient-to-br from-brand-900 to-brand-700 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-6 sm:p-10 w-full max-w-md">
+    <div class="flex items-center gap-3 mb-8">
+      <div class="h-10 w-10 bg-brand-500 rounded-lg flex items-center justify-center text-white font-bold">T</div>
+      <div>
+        <h1 class="text-xl font-bold">Tesouraria</h1>
+        <p class="text-xs text-slate-500">Mapa de Tesouraria BizzPm</p>
+      </div>
+    </div>
+    <h2 class="text-2xl font-bold mb-2">Iniciar sessão</h2>
+    <p class="text-sm text-slate-500 mb-6">Aceda à sua área de tesouraria</p>
+    <form onsubmit="event.preventDefault(); enterApp();" class="space-y-4">
+      <div>
+        <label class="text-xs font-medium text-slate-600">Email</label>
+        <input type="email" value="demo@bizzpm.pt" class="mt-1 w-full h-11 px-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Password</label>
+        <input type="password" value="••••••••••••" class="mt-1 w-full h-11 px-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500">
+      </div>
+      <div class="flex items-center justify-between text-sm">
+        <label class="flex items-center gap-2"><input type="checkbox" class="rounded"> Lembrar-me</label>
+        <a href="#" class="text-brand-600 hover:underline">Recuperar password</a>
+      </div>
+      <button class="w-full h-11 bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-lg">Entrar</button>
+      <div class="flex items-center gap-3 text-xs text-slate-400 my-2"><div class="flex-1 h-px bg-slate-200"></div>ou<div class="flex-1 h-px bg-slate-200"></div></div>
+      <button type="button" class="w-full h-11 border border-slate-300 rounded-lg hover:bg-slate-50 text-sm">Entrar com Google</button>
+    </form>
+    <p class="text-xs text-slate-400 mt-6 text-center">Protegido por TLS 1.3 · 2FA disponível · RGPD</p>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app-shell" class="flex min-h-screen">
+
+  <!-- SIDEBAR BACKDROP (mobile) -->
+  <div id="sidebar-backdrop" onclick="toggleSidebar(false)" class="hidden fixed inset-0 bg-black/50 z-30 lg:hidden"></div>
+
+  <!-- SIDEBAR -->
+  <aside id="sidebar" class="w-64 bg-ink-900 text-slate-300 flex flex-col fixed inset-y-0 left-0 z-40">
+    <div class="p-5 border-b border-white/10 flex items-center gap-3">
+      <div class="h-9 w-9 bg-brand-500 rounded-lg flex items-center justify-center text-white font-bold">T</div>
+      <div>
+        <div class="text-white font-semibold text-sm">Tesouraria</div>
+        <div class="text-xs text-slate-400">BizzPm</div>
+      </div>
+    </div>
+
+    <!-- Company selector -->
+    <div class="px-3 py-3 border-b border-white/10">
+      <label class="text-[10px] uppercase tracking-wider text-slate-500">Empresa</label>
+      <select class="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
+        <option>Acme Portugal, Lda</option>
+        <option>Acme Digital, Lda</option>
+        <option>Sub-Holding, SA</option>
+      </select>
+    </div>
+
+    <nav class="flex-1 overflow-y-auto py-3 text-sm">
+      <div class="px-3 pb-2 text-[10px] uppercase tracking-wider text-slate-500">Principal</div>
+      <a onclick="nav('dashboard')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer active" data-nav="dashboard">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+        Visão Geral
+      </a>
+      <a onclick="nav('detalhado')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="detalhado">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m3 6V9m3 8v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        Dashboard Detalhado
+      </a>
+      <a onclick="nav('previsao')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="previsao">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+        Previsão
+      </a>
+
+      <div class="px-3 pt-4 pb-2 text-[10px] uppercase tracking-wider text-slate-500">Operações</div>
+      <a onclick="nav('bancos')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="bancos">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10l9-7 9 7M5 10v10h14V10M9 21v-6h6v6"/></svg>
+        Bancos & Movimentos
+      </a>
+      <a onclick="nav('reconciliacao')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="reconciliacao">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"/></svg>
+        Reconciliação
+      </a>
+      <a onclick="nav('faturacao')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="faturacao">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Contas a Receber
+      </a>
+      <a onclick="nav('compras')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="compras">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+        Contas a Pagar
+      </a>
+
+      <div class="px-3 pt-4 pb-2 text-[10px] uppercase tracking-wider text-slate-500">Sistema</div>
+      <a onclick="nav('definicoes')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="definicoes">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Definições
+      </a>
+      <a onclick="nav('ajuda')" class="sidebar-item flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer" data-nav="ajuda">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093M12 17h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Ajuda
+      </a>
+    </nav>
+
+    <div class="p-3 border-t border-white/10">
+      <div class="flex items-center gap-3">
+        <div class="h-9 w-9 rounded-full bg-brand-500 flex items-center justify-center text-white text-sm font-semibold">RA</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm text-white truncate">Ricardo Almeida</div>
+          <div class="text-xs text-slate-400">Admin</div>
+        </div>
+        <button onclick="logout()" class="text-slate-400 hover:text-white" title="Sair">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="flex-1 w-full lg:ml-64 min-w-0">
+
+    <!-- TOPBAR -->
+    <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-20">
+      <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+        <button onclick="toggleSidebar(true)" class="lg:hidden h-9 w-9 -ml-1 rounded-lg hover:bg-slate-100 flex items-center justify-center shrink-0" title="Menu">
+          <svg class="h-5 w-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h1 id="page-title" class="text-base sm:text-lg font-semibold text-slate-900 truncate">Visão Geral</h1>
+        <span class="hidden md:inline text-xs text-slate-400">· Atualizado há 5 min</span>
+      </div>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <div class="relative hidden md:block">
+          <input type="search" placeholder="Pesquisar..." class="h-9 w-48 xl:w-64 pl-9 pr-3 bg-slate-100 border border-transparent rounded-lg text-sm focus:outline-none focus:bg-white focus:border-slate-300">
+          <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </div>
+        <button class="md:hidden h-9 w-9 rounded-lg hover:bg-slate-100 flex items-center justify-center" title="Pesquisar">
+          <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </button>
+        <button class="relative h-9 w-9 rounded-lg hover:bg-slate-100 flex items-center justify-center" title="Notificações">
+          <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          <span class="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500"></span>
+        </button>
+        <div class="hidden lg:block h-6 w-px bg-slate-200"></div>
+        <span class="hidden lg:inline text-xs text-slate-500">Último acesso: 10/04 09:14</span>
+      </div>
+    </header>
+
+    <!-- PAGES CONTAINER -->
+    <div class="p-4 sm:p-6">
+
+      <!-- ================ 1. DASHBOARD GERAL ================ -->
+      <section id="page-dashboard" class="page active animate-fade">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Visão Geral</h2>
+            <p class="text-sm text-slate-500">Panorama da tesouraria — 11 de abril de 2026</p>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <select class="h-9 px-3 border border-slate-300 rounded-lg text-sm bg-white flex-1 sm:flex-none">
+              <option>Últimos 30 dias</option>
+              <option>Últimos 60 dias</option>
+              <option>Últimos 90 dias</option>
+              <option>Este mês</option>
+              <option>Este trimestre</option>
+            </select>
+            <button class="h-9 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium flex items-center gap-2">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+              <span class="hidden sm:inline">Exportar</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- KPIs -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <div class="kpi-card bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Saldo Total</span>
+              <div class="h-8 w-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <svg class="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+              </div>
+            </div>
+            <div class="mono text-2xl font-bold text-slate-900">€ 487.340</div>
+            <div class="flex items-center gap-1 mt-1 text-xs">
+              <span class="text-green-600 font-medium">↑ 8,2%</span>
+              <span class="text-slate-400">vs mês anterior</span>
+            </div>
+          </div>
+          <div class="kpi-card bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Caixa Disponível</span>
+              <div class="h-8 w-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                <svg class="h-4 w-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              </div>
+            </div>
+            <div class="mono text-2xl font-bold text-slate-900">€ 312.100</div>
+            <div class="text-xs text-slate-400 mt-1">Saldo − Pagamentos 30d</div>
+          </div>
+          <div class="kpi-card bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">A Receber</span>
+              <div class="h-8 w-8 rounded-lg bg-green-50 flex items-center justify-center">
+                <svg class="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+              </div>
+            </div>
+            <div class="mono text-2xl font-bold text-green-700">€ 184.520</div>
+            <div class="text-xs text-slate-400 mt-1">23 faturas · 5 vencidas</div>
+          </div>
+          <div class="kpi-card bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">A Pagar</span>
+              <div class="h-8 w-8 rounded-lg bg-red-50 flex items-center justify-center">
+                <svg class="h-4 w-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+              </div>
+            </div>
+            <div class="mono text-2xl font-bold text-red-700">€ 97.240</div>
+            <div class="text-xs text-slate-400 mt-1">14 compras · 3 vencidas</div>
+          </div>
+        </div>
+
+        <!-- Charts row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h3 class="text-sm font-semibold text-slate-900">Evolução do saldo</h3>
+              <div class="flex gap-1 text-xs">
+                <button class="px-2 py-1 bg-slate-100 rounded">7d</button>
+                <button class="px-2 py-1 bg-brand-600 text-white rounded">30d</button>
+                <button class="px-2 py-1 bg-slate-100 rounded">90d</button>
+              </div>
+            </div>
+            <div class="h-[220px] sm:h-[260px]"><canvas id="chartBalance"></canvas></div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
+            <h3 class="text-sm font-semibold text-slate-900 mb-4">Entradas vs Saídas</h3>
+            <div class="h-[220px] sm:h-[260px]"><canvas id="chartFlow"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Bottom row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h3 class="text-sm font-semibold text-slate-900 mb-4">Contas bancárias</h3>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <div class="text-sm font-medium">Millennium BCP</div>
+                  <div class="text-xs text-slate-500 mono mask">PT50 0033 0000 4551 2398 756</div>
+                </div>
+                <div class="mono text-sm font-semibold">€ 214.800</div>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <div class="text-sm font-medium">CGD — Principal</div>
+                  <div class="text-xs text-slate-500 mono mask">PT50 0035 0001 2387 1029 841</div>
+                </div>
+                <div class="mono text-sm font-semibold">€ 198.540</div>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <div class="text-sm font-medium">Santander Negócios</div>
+                  <div class="text-xs text-slate-500 mono mask">PT50 0018 0000 9912 3487 221</div>
+                </div>
+                <div class="mono text-sm font-semibold">€ 74.000</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h3 class="text-sm font-semibold text-slate-900 mb-4">Top clientes a receber</h3>
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-sm"><span>Sonae Indústria</span><span class="mono font-medium">€ 42.800</span></div>
+              <div class="flex items-center justify-between text-sm"><span>Jerónimo Martins</span><span class="mono font-medium">€ 31.200</span></div>
+              <div class="flex items-center justify-between text-sm"><span>EDP Comercial</span><span class="mono font-medium">€ 24.500</span></div>
+              <div class="flex items-center justify-between text-sm"><span>Galp Energia</span><span class="mono font-medium">€ 18.900</span></div>
+              <div class="flex items-center justify-between text-sm"><span>Altice Portugal</span><span class="mono font-medium">€ 14.300</span></div>
+            </div>
+            <h3 class="text-sm font-semibold text-slate-900 mt-5 mb-2">Top fornecedores a pagar</h3>
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-sm"><span>NOS Comunicações</span><span class="mono font-medium text-red-700">€ 22.100</span></div>
+              <div class="flex items-center justify-between text-sm"><span>REN</span><span class="mono font-medium text-red-700">€ 15.800</span></div>
+              <div class="flex items-center justify-between text-sm"><span>Autoridade Tributária</span><span class="mono font-medium text-red-700">€ 12.400</span></div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h3 class="text-sm font-semibold text-slate-900 mb-4">Alertas</h3>
+            <div class="space-y-2">
+              <div class="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div class="flex items-start gap-2">
+                  <svg class="h-4 w-4 text-red-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                  <div>
+                    <div class="text-sm font-medium text-red-900">5 faturas vencidas</div>
+                    <div class="text-xs text-red-700">€ 47.200 em atraso</div>
+                  </div>
+                </div>
+              </div>
+              <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div class="flex items-start gap-2">
+                  <svg class="h-4 w-4 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <div>
+                    <div class="text-sm font-medium text-amber-900">Pagamento iminente</div>
+                    <div class="text-xs text-amber-700">IRS Q1 vence em 3 dias · € 12.400</div>
+                  </div>
+                </div>
+              </div>
+              <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div class="flex items-start gap-2">
+                  <svg class="h-4 w-4 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <div>
+                    <div class="text-sm font-medium text-blue-900">12 movimentos por classificar</div>
+                    <div class="text-xs text-blue-700">Última importação: hoje 08:22</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 2. DASHBOARD DETALHADO ================ -->
+      <section id="page-detalhado" class="page animate-fade">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Dashboard Detalhado</h2>
+            <p class="text-sm text-slate-500">Cash flow mensal, receitas e despesas por categoria</p>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <select class="h-9 px-3 border border-slate-300 rounded-lg text-sm bg-white">
+              <option>2026</option><option>2025</option><option>2024</option>
+            </select>
+            <div class="flex rounded-lg border border-slate-300 bg-white text-sm overflow-hidden">
+              <button class="px-3 h-9 bg-brand-600 text-white">Ambos</button>
+              <button class="px-3 h-9">Real</button>
+              <button class="px-3 h-9">Previsto</button>
+            </div>
+            <label class="flex items-center gap-2 text-xs sm:text-sm text-slate-600"><input type="checkbox" class="rounded"> Orçamento</label>
+            <label class="flex items-center gap-2 text-xs sm:text-sm text-slate-600"><input type="checkbox" class="rounded"> Balancete</label>
+          </div>
+        </div>
+
+        <!-- KPI summary -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Receitas YTD</div>
+            <div class="mono text-xl font-bold text-green-700">€ 1.842K</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Despesas YTD</div>
+            <div class="mono text-xl font-bold text-red-700">€ 1.214K</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Margem</div>
+            <div class="mono text-xl font-bold">34%</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Burn Rate</div>
+            <div class="mono text-xl font-bold">€ 98K/m</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Runway</div>
+            <div class="mono text-xl font-bold text-green-700">5,0 meses</div>
+          </div>
+        </div>
+
+        <!-- Cash flow table -->
+        <div class="bg-white rounded-xl border border-slate-200 overflow-hidden mb-6">
+          <div class="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-sm font-semibold">Cash Flow mensal</h3>
+            <div class="text-xs text-slate-500">valores em €</div>
+          </div>
+          <div class="table-wrap scrollbar">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+                <tr>
+                  <th class="text-left px-4 py-3 sticky left-0 bg-slate-50">Categoria</th>
+                  <th class="text-right px-3 py-3">Jan</th><th class="text-right px-3 py-3">Fev</th>
+                  <th class="text-right px-3 py-3">Mar</th><th class="text-right px-3 py-3">Abr</th>
+                  <th class="text-right px-3 py-3">Mai</th><th class="text-right px-3 py-3">Jun</th>
+                  <th class="text-right px-3 py-3">Jul</th><th class="text-right px-3 py-3">Ago</th>
+                  <th class="text-right px-3 py-3">Set</th><th class="text-right px-3 py-3">Out</th>
+                  <th class="text-right px-3 py-3">Nov</th><th class="text-right px-3 py-3">Dez</th>
+                  <th class="text-right px-4 py-3 bg-slate-100">Total</th>
+                </tr>
+              </thead>
+              <tbody class="mono">
+                <tr class="border-t border-slate-100 bg-green-50/30">
+                  <td colspan="14" class="px-4 py-2 font-semibold text-green-800 text-xs uppercase">Entradas</td>
+                </tr>
+                <tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
+                  <td class="px-4 py-2 sticky left-0 bg-white">Vendas produtos</td>
+                  <td class="text-right px-3">142K</td><td class="text-right px-3">158K</td><td class="text-right px-3">167K</td><td class="text-right px-3 text-slate-400">152K</td>
+                  <td class="text-right px-3 text-slate-400">160K</td><td class="text-right px-3 text-slate-400">170K</td><td class="text-right px-3 text-slate-400">165K</td><td class="text-right px-3 text-slate-400">155K</td>
+                  <td class="text-right px-3 text-slate-400">170K</td><td class="text-right px-3 text-slate-400">180K</td><td class="text-right px-3 text-slate-400">185K</td><td class="text-right px-3 text-slate-400">195K</td>
+                  <td class="text-right px-4 bg-slate-50 font-semibold">1.999K</td>
+                </tr>
+                <tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
+                  <td class="px-4 py-2 sticky left-0 bg-white">Serviços</td>
+                  <td class="text-right px-3">48K</td><td class="text-right px-3">52K</td><td class="text-right px-3">51K</td><td class="text-right px-3 text-slate-400">50K</td>
+                  <td class="text-right px-3 text-slate-400">54K</td><td class="text-right px-3 text-slate-400">56K</td><td class="text-right px-3 text-slate-400">55K</td><td class="text-right px-3 text-slate-400">48K</td>
+                  <td class="text-right px-3 text-slate-400">58K</td><td class="text-right px-3 text-slate-400">62K</td><td class="text-right px-3 text-slate-400">60K</td><td class="text-right px-3 text-slate-400">65K</td>
+                  <td class="text-right px-4 bg-slate-50 font-semibold">659K</td>
+                </tr>
+                <tr class="border-t border-slate-100 bg-red-50/30">
+                  <td colspan="14" class="px-4 py-2 font-semibold text-red-800 text-xs uppercase">Saídas</td>
+                </tr>
+                <tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
+                  <td class="px-4 py-2 sticky left-0 bg-white">Compras</td>
+                  <td class="text-right px-3">-62K</td><td class="text-right px-3">-68K</td><td class="text-right px-3">-71K</td><td class="text-right px-3 text-slate-400">-65K</td>
+                  <td class="text-right px-3 text-slate-400">-70K</td><td class="text-right px-3 text-slate-400">-72K</td><td class="text-right px-3 text-slate-400">-68K</td><td class="text-right px-3 text-slate-400">-65K</td>
+                  <td class="text-right px-3 text-slate-400">-75K</td><td class="text-right px-3 text-slate-400">-78K</td><td class="text-right px-3 text-slate-400">-80K</td><td class="text-right px-3 text-slate-400">-82K</td>
+                  <td class="text-right px-4 bg-slate-50 font-semibold text-red-700">-856K</td>
+                </tr>
+                <tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
+                  <td class="px-4 py-2 sticky left-0 bg-white">Salários</td>
+                  <td class="text-right px-3">-48K</td><td class="text-right px-3">-48K</td><td class="text-right px-3">-48K</td><td class="text-right px-3 text-slate-400">-48K</td>
+                  <td class="text-right px-3 text-slate-400">-48K</td><td class="text-right px-3 text-slate-400">-48K</td><td class="text-right px-3 text-slate-400">-72K</td><td class="text-right px-3 text-slate-400">-48K</td>
+                  <td class="text-right px-3 text-slate-400">-48K</td><td class="text-right px-3 text-slate-400">-48K</td><td class="text-right px-3 text-slate-400">-48K</td><td class="text-right px-3 text-slate-400">-72K</td>
+                  <td class="text-right px-4 bg-slate-50 font-semibold text-red-700">-624K</td>
+                </tr>
+                <tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
+                  <td class="px-4 py-2 sticky left-0 bg-white">Rendas e utilities</td>
+                  <td class="text-right px-3">-8K</td><td class="text-right px-3">-8K</td><td class="text-right px-3">-8K</td><td class="text-right px-3 text-slate-400">-8K</td>
+                  <td class="text-right px-3 text-slate-400">-8K</td><td class="text-right px-3 text-slate-400">-8K</td><td class="text-right px-3 text-slate-400">-8K</td><td class="text-right px-3 text-slate-400">-8K</td>
+                  <td class="text-right px-3 text-slate-400">-8K</td><td class="text-right px-3 text-slate-400">-8K</td><td class="text-right px-3 text-slate-400">-8K</td><td class="text-right px-3 text-slate-400">-8K</td>
+                  <td class="text-right px-4 bg-slate-50 font-semibold text-red-700">-96K</td>
+                </tr>
+                <tr class="border-t-2 border-slate-300 bg-slate-50 font-bold">
+                  <td class="px-4 py-3 sticky left-0 bg-slate-50">Saldo líquido</td>
+                  <td class="text-right px-3 text-green-700">72K</td><td class="text-right px-3 text-green-700">86K</td><td class="text-right px-3 text-green-700">91K</td><td class="text-right px-3 text-green-700">81K</td>
+                  <td class="text-right px-3 text-green-700">88K</td><td class="text-right px-3 text-green-700">98K</td><td class="text-right px-3 text-green-700">72K</td><td class="text-right px-3 text-green-700">82K</td>
+                  <td class="text-right px-3 text-green-700">97K</td><td class="text-right px-3 text-green-700">108K</td><td class="text-right px-3 text-green-700">109K</td><td class="text-right px-3 text-green-700">98K</td>
+                  <td class="text-right px-4 bg-slate-100 text-green-700">1.082K</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Burn rate + runway -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
+            <h3 class="text-sm font-semibold mb-4">Burn Rate</h3>
+            <div class="h-[200px] sm:h-[220px]"><canvas id="chartBurn"></canvas></div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
+            <h3 class="text-sm font-semibold mb-4">Runway Simulator</h3>
+            <div class="space-y-3">
+              <div class="flex justify-between"><span class="text-sm">Saldo atual</span><span class="mono font-semibold">€ 487.340</span></div>
+              <div class="flex justify-between"><span class="text-sm">Burn rate mensal</span><span class="mono font-semibold">€ 98.000</span></div>
+              <div class="flex justify-between"><span class="text-sm">Receita recorrente</span><span class="mono font-semibold text-green-700">€ 162.000</span></div>
+              <div class="h-px bg-slate-200 my-2"></div>
+              <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div class="text-xs text-green-700 uppercase font-medium">Runway estimado</div>
+                <div class="text-2xl font-bold text-green-800 mt-1">∞ (positivo)</div>
+                <div class="text-xs text-green-700 mt-1">A receita recorrente excede o burn rate</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 3. PREVISÃO ================ -->
+      <section id="page-previsao" class="page animate-fade">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Previsão de Tesouraria</h2>
+            <p class="text-sm text-slate-500">Projeção do saldo nos próximos 90 dias</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="h-9 px-3 border border-slate-300 rounded-lg text-sm bg-white">Novo Cenário</button>
+            <button class="h-9 px-3 border border-slate-300 rounded-lg text-sm bg-white flex items-center gap-2">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+              <span class="hidden sm:inline">Exportar</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scenario selector -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <button class="p-4 bg-white border-2 border-brand-600 rounded-xl text-left">
+            <div class="text-xs text-slate-500 uppercase">Cenário</div>
+            <div class="font-semibold text-slate-900 mt-1">Base</div>
+            <div class="text-xs text-slate-500 mt-1">Recebimento 85% · Atraso 0d</div>
+            <div class="mono text-lg font-bold text-green-700 mt-2">€ 612K</div>
+          </button>
+          <button class="p-4 bg-white border border-slate-200 rounded-xl text-left hover:border-slate-400">
+            <div class="text-xs text-slate-500 uppercase">Cenário</div>
+            <div class="font-semibold text-slate-900 mt-1">Conservador</div>
+            <div class="text-xs text-slate-500 mt-1">Recebimento 65% · Atraso -7d</div>
+            <div class="mono text-lg font-bold text-amber-700 mt-2">€ 384K</div>
+          </button>
+          <button class="p-4 bg-white border border-slate-200 rounded-xl text-left hover:border-slate-400">
+            <div class="text-xs text-slate-500 uppercase">Cenário</div>
+            <div class="font-semibold text-slate-900 mt-1">Otimista</div>
+            <div class="text-xs text-slate-500 mt-1">Recebimento 95% · Atraso +7d</div>
+            <div class="mono text-lg font-bold text-green-700 mt-2">€ 748K</div>
+          </button>
+          <button class="p-4 bg-white border border-dashed border-slate-300 rounded-xl text-left hover:border-brand-500 text-slate-500">
+            <div class="text-xs uppercase">+ Novo</div>
+            <div class="font-semibold mt-1">Orçamento</div>
+            <div class="text-xs mt-1">Usar valores do orçamento</div>
+          </button>
+        </div>
+
+        <!-- Forecast chart -->
+        <div class="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 mb-6">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
+            <h3 class="text-sm font-semibold">Projeção do saldo — 90 dias</h3>
+            <div class="flex items-center gap-3 sm:gap-4 text-xs flex-wrap">
+              <span class="flex items-center gap-1"><span class="h-2 w-4 bg-brand-500"></span> Base</span>
+              <span class="flex items-center gap-1"><span class="h-2 w-4 bg-amber-500"></span> Conservador</span>
+              <span class="flex items-center gap-1"><span class="h-2 w-4 bg-green-500"></span> Otimista</span>
+              <span class="hidden sm:flex items-center gap-1"><span class="h-2 w-4 border border-red-500 border-dashed"></span> Saldo mínimo</span>
+            </div>
+          </div>
+          <div class="h-[260px] sm:h-[320px]"><canvas id="chartForecast"></canvas></div>
+        </div>
+
+        <!-- Upcoming events -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h3 class="text-sm font-semibold mb-3 text-green-700">Entradas previstas (próximos 30 dias)</h3>
+            <div class="space-y-2 text-sm">
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <div><div class="font-medium">Sonae Indústria</div><div class="text-xs text-slate-500">FAC 2026/A/0188 · Vence 12/04</div></div>
+                <div class="mono font-semibold text-green-700">€ 18.500</div>
+              </div>
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <div><div class="font-medium">Jerónimo Martins</div><div class="text-xs text-slate-500">FAC 2026/A/0192 · Vence 15/04</div></div>
+                <div class="mono font-semibold text-green-700">€ 24.300</div>
+              </div>
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <div><div class="font-medium">EDP Comercial</div><div class="text-xs text-slate-500">FAC 2026/A/0201 · Vence 22/04</div></div>
+                <div class="mono font-semibold text-green-700">€ 12.800</div>
+              </div>
+              <div class="flex items-center justify-between py-2">
+                <div><div class="font-medium">Galp Energia</div><div class="text-xs text-slate-500">FAC 2026/A/0205 · Vence 28/04</div></div>
+                <div class="mono font-semibold text-green-700">€ 8.900</div>
+              </div>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h3 class="text-sm font-semibold mb-3 text-red-700">Saídas previstas (próximos 30 dias)</h3>
+            <div class="space-y-2 text-sm">
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <div><div class="font-medium">Salários Abril</div><div class="text-xs text-slate-500">Recorrente · 25/04</div></div>
+                <div class="mono font-semibold text-red-700">€ 48.000</div>
+              </div>
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <div><div class="font-medium">Autoridade Tributária</div><div class="text-xs text-slate-500">IRS Q1 · 13/04</div></div>
+                <div class="mono font-semibold text-red-700">€ 12.400</div>
+              </div>
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <div><div class="font-medium">NOS Comunicações</div><div class="text-xs text-slate-500">FAC 78234 · 18/04</div></div>
+                <div class="mono font-semibold text-red-700">€ 3.200</div>
+              </div>
+              <div class="flex items-center justify-between py-2">
+                <div><div class="font-medium">Renda escritório</div><div class="text-xs text-slate-500">Recorrente · 01/05</div></div>
+                <div class="mono font-semibold text-red-700">€ 4.500</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 4. BANCOS ================ -->
+      <section id="page-bancos" class="page animate-fade">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Bancos & Movimentos</h2>
+            <p class="text-sm text-slate-500">Contas bancárias e extrato</p>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="openImportBank()" class="h-9 px-3 sm:px-4 border border-slate-300 bg-white rounded-lg text-sm flex items-center gap-2 hover:bg-slate-50">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+              <span>Importar</span>
+            </button>
+            <button onclick="openNewBank()" class="h-9 px-3 sm:px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm flex items-center gap-2">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              <span>Nova Conta</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bank cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          <div class="bg-gradient-to-br from-blue-600 to-blue-800 text-white rounded-xl p-5 cursor-pointer shadow-lg">
+            <div class="flex items-center justify-between">
+              <div class="text-sm font-medium opacity-90">Millennium BCP</div>
+              <div class="text-xs opacity-70">EUR</div>
+            </div>
+            <div class="mono text-xs opacity-70 mt-3 mask">PT50 0033 0000 4551 2398 756</div>
+            <div class="mono text-2xl font-bold mt-4">€ 214.800</div>
+            <div class="text-xs opacity-70 mt-1">Atualizado 10/04 08:22</div>
+          </div>
+          <div class="bg-gradient-to-br from-slate-700 to-slate-900 text-white rounded-xl p-5 cursor-pointer shadow-lg">
+            <div class="flex items-center justify-between">
+              <div class="text-sm font-medium opacity-90">CGD — Principal</div>
+              <div class="text-xs opacity-70">EUR</div>
+            </div>
+            <div class="mono text-xs opacity-70 mt-3 mask">PT50 0035 0001 2387 1029 841</div>
+            <div class="mono text-2xl font-bold mt-4">€ 198.540</div>
+            <div class="text-xs opacity-70 mt-1">Atualizado 10/04 08:22</div>
+          </div>
+          <div class="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-xl p-5 cursor-pointer shadow-lg">
+            <div class="flex items-center justify-between">
+              <div class="text-sm font-medium opacity-90">Santander Negócios</div>
+              <div class="text-xs opacity-70">EUR</div>
+            </div>
+            <div class="mono text-xs opacity-70 mt-3 mask">PT50 0018 0000 9912 3487 221</div>
+            <div class="mono text-2xl font-bold mt-4">€ 74.000</div>
+            <div class="text-xs opacity-70 mt-1">Atualizado 09/04 18:45</div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white rounded-xl border border-slate-200 mb-4 p-4 flex items-center gap-3 flex-wrap">
+          <select class="h-9 px-3 border border-slate-300 rounded-lg text-sm"><option>Todas as contas</option></select>
+          <select class="h-9 px-3 border border-slate-300 rounded-lg text-sm">
+            <option>Todos os estados</option>
+            <option>Por classificar</option>
+            <option>Classificado</option>
+            <option>Reconciliado</option>
+          </select>
+          <input type="text" placeholder="Pesquisar descrição..." class="h-9 px-3 border border-slate-300 rounded-lg text-sm flex-1 min-w-[200px]">
+          <button onclick="toast('Filtros limpos', 'info')" class="h-9 px-4 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">Limpar</button>
+        </div>
+
+        <!-- Movements table -->
+        <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="table-wrap scrollbar">
+          <table class="w-full text-sm min-w-[720px]">
+            <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+              <tr>
+                <th class="text-left px-4 py-3">Data</th>
+                <th class="text-left px-4 py-3">Descrição</th>
+                <th class="text-left px-4 py-3">Conta</th>
+                <th class="text-left px-4 py-3">Categoria</th>
+                <th class="text-right px-4 py-3">Valor</th>
+                <th class="text-left px-4 py-3">Estado</th>
+                <th class="text-right px-4 py-3">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">10/04/2026</td>
+                <td class="px-4 py-3">TRF SONAE INDUSTRIA SA</td>
+                <td class="px-4 py-3 text-xs text-slate-600">BCP ...756</td>
+                <td class="px-4 py-3"><span class="text-xs text-slate-500">—</span></td>
+                <td class="px-4 py-3 text-right mono font-semibold text-green-700">+ 18.500,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">Por classificar</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="classifyMovement('TRF SONAE INDUSTRIA SA', 18500)" class="text-brand-600 hover:underline text-xs">Classificar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">09/04/2026</td>
+                <td class="px-4 py-3">PAG NOS COMUNICACOES</td>
+                <td class="px-4 py-3 text-xs text-slate-600">CGD ...841</td>
+                <td class="px-4 py-3 text-xs">Comunicações</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">- 3.200,00</td>
+                <td class="px-4 py-3"><span class="badge bg-green-100 text-green-700">Reconciliado</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="toast('Detalhe do movimento reconciliado · NOS', 'info')" class="text-slate-400 hover:text-slate-600">Ver</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">09/04/2026</td>
+                <td class="px-4 py-3">TRF JERONIMO MARTINS</td>
+                <td class="px-4 py-3 text-xs text-slate-600">BCP ...756</td>
+                <td class="px-4 py-3 text-xs">Vendas</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-green-700">+ 24.300,00</td>
+                <td class="px-4 py-3"><span class="badge bg-amber-100 text-amber-700">Classificado</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="goReconcile('Jerónimo Martins')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">08/04/2026</td>
+                <td class="px-4 py-3">SALARIOS MARCO 2026</td>
+                <td class="px-4 py-3 text-xs text-slate-600">CGD ...841</td>
+                <td class="px-4 py-3 text-xs">Salários</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">- 48.000,00</td>
+                <td class="px-4 py-3"><span class="badge bg-green-100 text-green-700">Reconciliado</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="toast('Detalhe · Salários Março 2026', 'info')" class="text-slate-400 hover:text-slate-600">Ver</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">08/04/2026</td>
+                <td class="px-4 py-3">COMPRA MATERIAL ACME TOOLS</td>
+                <td class="px-4 py-3 text-xs text-slate-600">BCP ...756</td>
+                <td class="px-4 py-3"><span class="text-xs text-slate-500">—</span></td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">- 8.340,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">Por classificar</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="classifyMovement('COMPRA MATERIAL ACME TOOLS', -8340)" class="text-brand-600 hover:underline text-xs">Classificar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">07/04/2026</td>
+                <td class="px-4 py-3">EDP COMERCIAL — FATURA</td>
+                <td class="px-4 py-3 text-xs text-slate-600">Santander ...221</td>
+                <td class="px-4 py-3 text-xs">Utilities</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">- 1.840,00</td>
+                <td class="px-4 py-3"><span class="badge bg-green-100 text-green-700">Reconciliado</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="toast('Detalhe · EDP', 'info')" class="text-slate-400 hover:text-slate-600">Ver</button></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+          <div class="px-4 py-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+            <span>6 de 248 movimentos</span>
+            <div class="flex items-center gap-1">
+              <button class="px-2 py-1 border rounded">Anterior</button>
+              <button class="px-2 py-1 border rounded bg-brand-600 text-white">1</button>
+              <button class="px-2 py-1 border rounded">2</button>
+              <button class="px-2 py-1 border rounded">3</button>
+              <button class="px-2 py-1 border rounded">Seguinte</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 5. RECONCILIAÇÃO ================ -->
+      <section id="page-reconciliacao" class="page animate-fade">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Reconciliação Bancária</h2>
+            <p class="text-sm text-slate-500">Selecione movimentos e faturas (de venda e/ou de compra) e associe em lote</p>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="badge bg-amber-100 text-amber-700">Modo dry-run ativo</span>
+            <button onclick="autoMatch()" class="h-9 px-3 sm:px-4 border border-slate-300 bg-white hover:bg-slate-50 rounded-lg text-sm">Matching auto</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-24">
+          <!-- Movements column -->
+          <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div class="p-4 border-b border-slate-200">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm">Movimentos pendentes <span class="text-slate-400">(12)</span></h3>
+                <label class="text-xs text-slate-500 flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" onchange="toggleAllMov(this)"> Selecionar todos
+                </label>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <select class="h-8 px-2 border border-slate-300 rounded text-xs">
+                  <option>Todas as contas</option><option>BCP ...756</option><option>CGD ...841</option>
+                </select>
+                <select class="h-8 px-2 border border-slate-300 rounded text-xs">
+                  <option>Entrada e saída</option><option>Só entradas</option><option>Só saídas</option>
+                </select>
+                <input type="search" placeholder="Pesquisar..." class="h-8 px-2 border border-slate-300 rounded text-xs flex-1 min-w-[100px]">
+              </div>
+            </div>
+            <div class="divide-y divide-slate-100 max-h-[620px] overflow-y-auto scrollbar">
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="mov-cb mt-0.5" data-amount="20000" onchange="updateRecBar()" checked>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="text-sm font-medium">TRF DIVERSOS</div>
+                      <div class="text-xs text-slate-500 mt-0.5">BCP ...756 · 10/04/2026</div>
+                    </div>
+                    <div class="mono text-sm font-semibold text-green-700 whitespace-nowrap">+ 20.000,00</div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="mov-cb mt-0.5" data-amount="18500" onchange="updateRecBar()">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="text-sm font-medium">TRF SONAE INDUSTRIA SA</div>
+                      <div class="text-xs text-slate-500 mt-0.5">BCP ...756 · 10/04/2026</div>
+                    </div>
+                    <div class="mono text-sm font-semibold text-green-700 whitespace-nowrap">+ 18.500,00</div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="mov-cb mt-0.5" data-amount="-48000" onchange="updateRecBar()">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="text-sm font-medium">PAG SALARIOS 04/2026</div>
+                      <div class="text-xs text-slate-500 mt-0.5">CGD ...841 · 25/04/2026</div>
+                    </div>
+                    <div class="mono text-sm font-semibold text-red-700 whitespace-nowrap">- 48.000,00</div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="mov-cb mt-0.5" data-amount="-8340" onchange="updateRecBar()">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="text-sm font-medium">COMPRA MATERIAL ACME TOOLS</div>
+                      <div class="text-xs text-slate-500 mt-0.5">BCP ...756 · 08/04/2026</div>
+                    </div>
+                    <div class="mono text-sm font-semibold text-red-700 whitespace-nowrap">- 8.340,00</div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="mov-cb mt-0.5" data-amount="8900" onchange="updateRecBar()">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="text-sm font-medium">TRF GALP ENERGIA</div>
+                      <div class="text-xs text-slate-500 mt-0.5">CGD ...841 · 07/04/2026</div>
+                    </div>
+                    <div class="mono text-sm font-semibold text-green-700 whitespace-nowrap">+ 8.900,00</div>
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Invoices column -->
+          <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div class="p-4 border-b border-slate-200">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm">Faturas pendentes <span class="text-slate-400">(18)</span></h3>
+                <label class="text-xs text-slate-500 flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" onchange="toggleAllInv(this)"> Selecionar todas
+                </label>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <select class="h-8 px-2 border border-slate-300 rounded text-xs">
+                  <option>Receber e pagar</option><option>Só a receber</option><option>Só a pagar</option>
+                </select>
+                <select class="h-8 px-2 border border-slate-300 rounded text-xs">
+                  <option>Todas as origens</option><option>TOConline</option><option>Local</option>
+                </select>
+                <input type="search" placeholder="Pesquisar..." class="h-8 px-2 border border-slate-300 rounded text-xs flex-1 min-w-[100px]">
+              </div>
+            </div>
+            <div class="divide-y divide-slate-100 max-h-[620px] overflow-y-auto scrollbar">
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="inv-cb mt-0.5" data-pending="18500" data-type="AR" data-toc="true" data-entity="Sonae Indústria SA" data-ref="FAC 2026/A/0188" onchange="updateRecBar()" checked>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-1.5 w-1.5 rounded-full bg-brand-500" title="TOConline"></span>
+                        <span class="text-sm font-medium">Sonae Indústria SA</span>
+                        <span class="badge bg-green-100 text-green-700 text-[10px]">A receber</span>
+                      </div>
+                      <div class="text-xs text-slate-500 mt-0.5">FAC 2026/A/0188 · Vence 12/04/2026</div>
+                      <div class="text-[11px] text-slate-400 mt-0.5">Total € 18.500,00 · <span class="text-blue-700 font-semibold">Pendente € 18.500,00</span></div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="inv-cb mt-0.5" data-pending="5400" data-type="AR" data-toc="true" data-entity="Galp Energia SA" data-ref="FAC 2026/A/0178" onchange="updateRecBar()" checked>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                        <span class="text-sm font-medium">Galp Energia SA</span>
+                        <span class="badge bg-amber-100 text-amber-700 text-[10px]">Parcial</span>
+                      </div>
+                      <div class="text-xs text-slate-500 mt-0.5">FAC 2026/A/0178 · Vence 25/03/2026</div>
+                      <div class="text-[11px] text-slate-400 mt-0.5">Total € 8.900,00 · <span class="text-amber-700 font-semibold">Pendente € 5.400,00</span></div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="inv-cb mt-0.5" data-pending="8340" data-type="AP" data-toc="true" data-entity="Acme Tools, Lda" data-ref="FC 78421" onchange="updateRecBar()">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                        <span class="text-sm font-medium">Acme Tools, Lda</span>
+                        <span class="badge bg-red-100 text-red-700 text-[10px]">A pagar</span>
+                      </div>
+                      <div class="text-xs text-slate-500 mt-0.5">FC 78421 · Vence 20/04/2026</div>
+                      <div class="text-[11px] text-slate-400 mt-0.5">Pendente <span class="text-red-700 font-semibold">€ 8.340,00</span></div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer bg-slate-50/40">
+                <input type="checkbox" class="inv-cb mt-0.5" data-pending="48000" data-type="AP" data-toc="false" data-entity="Salários 04/2026" data-ref="LOC-SAL/04" onchange="updateRecBar()">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-1.5 w-1.5 rounded-full bg-slate-400" title="Apenas local"></span>
+                        <span class="text-sm font-medium">Salários equipa</span>
+                        <span class="badge bg-red-100 text-red-700 text-[10px]">A pagar · local</span>
+                      </div>
+                      <div class="text-xs text-slate-500 mt-0.5">LOC-SAL/04 · Vence 25/04/2026</div>
+                      <div class="text-[11px] text-slate-400 mt-0.5">Pendente <span class="text-red-700 font-semibold">€ 48.000,00</span></div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-4 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="inv-cb mt-0.5" data-pending="24300" data-type="AR" data-toc="true" data-entity="Jerónimo Martins" data-ref="FAC 2026/A/0192" onchange="updateRecBar()">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                        <span class="text-sm font-medium">Jerónimo Martins</span>
+                        <span class="badge bg-green-100 text-green-700 text-[10px]">A receber</span>
+                      </div>
+                      <div class="text-xs text-slate-500 mt-0.5">FAC 2026/A/0192 · Vence 15/04/2026</div>
+                      <div class="text-[11px] text-slate-400 mt-0.5">Pendente <span class="text-blue-700 font-semibold">€ 24.300,00</span></div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Help strip -->
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pb-20">
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div class="font-semibold text-blue-900">Multi-seleção N↔N</div>
+            <div class="text-blue-800 mt-0.5">Seleciona um ou mais movimentos e uma ou mais faturas. Valida-se soma = soma ao confirmar.</div>
+          </div>
+          <div class="bg-slate-100 border border-slate-200 rounded-lg p-3">
+            <div class="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+              Categorias locais
+            </div>
+            <div class="text-slate-700 mt-0.5">Faturas locais (salários, rendas…) são reconciliadas sem escrever no TOConline.</div>
+          </div>
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div class="font-semibold text-amber-900">Dry-run</div>
+            <div class="text-amber-800 mt-0.5">Modal de confirmação mostra pré-visualização antes de criar recibos/pagamentos.</div>
+          </div>
+        </div>
+
+        <!-- Floating reconcile bar -->
+        <div id="rec-bar" class="hidden fixed bottom-0 left-0 right-0 lg:left-64 bg-white border-t border-slate-200 shadow-2xl z-30">
+          <div class="max-w-full px-4 sm:px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+            <div class="flex items-center gap-4 sm:gap-6 text-sm flex-wrap">
+              <div>
+                <div class="text-[10px] uppercase text-slate-500">Movimentos</div>
+                <div class="font-semibold"><span id="rb-mov-count">0</span> selecionados · <span id="rb-mov-sum" class="mono">€ 0,00</span></div>
+              </div>
+              <div class="h-8 w-px bg-slate-200"></div>
+              <div>
+                <div class="text-[10px] uppercase text-slate-500">Faturas</div>
+                <div class="font-semibold"><span id="rb-inv-count">0</span> selecionadas · pendente <span id="rb-inv-sum" class="mono">€ 0,00</span></div>
+              </div>
+              <div class="h-8 w-px bg-slate-200 hidden md:block"></div>
+              <div id="rb-diff-wrap" class="hidden md:block">
+                <div class="text-[10px] uppercase text-slate-500">Diferença</div>
+                <div id="rb-diff" class="font-semibold mono">€ 0,00</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="clearRecSel()" class="h-9 px-3 border border-slate-300 rounded-lg text-sm">Limpar</button>
+              <button id="rb-confirm" onclick="openRecModal()" class="h-9 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                Reconciliar seleção
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reconciliation modal -->
+        <div id="rec-modal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+          <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl my-8">
+            <div class="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 class="text-lg font-semibold">Confirmar reconciliação</h3>
+                <p class="text-xs text-slate-500 mt-0.5">Reveja a distribuição dos valores antes de confirmar</p>
+              </div>
+              <button onclick="closeRecModal()" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center">
+                <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-0">
+              <!-- Movements summary (read only) -->
+              <div class="p-5 border-b md:border-b-0 md:border-r border-slate-200">
+                <div class="text-xs font-semibold text-slate-500 uppercase mb-3">Movimentos</div>
+                <div id="modal-mov-list" class="space-y-2 text-sm"></div>
+                <div class="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
+                  <span class="text-xs text-slate-500">Total movimentos</span>
+                  <span id="modal-mov-total" class="mono font-bold">€ 0,00</span>
+                </div>
+              </div>
+
+              <!-- Invoices with editable amounts -->
+              <div class="p-5">
+                <div class="text-xs font-semibold text-slate-500 uppercase mb-3">Faturas — valores a dar baixa</div>
+                <div id="modal-inv-list" class="space-y-3"></div>
+              </div>
+            </div>
+
+            <!-- Validation + preview -->
+            <div class="border-t border-slate-200 bg-slate-50 p-5">
+              <div class="grid grid-cols-3 gap-3 mb-4">
+                <div>
+                  <div class="text-[10px] uppercase text-slate-500">Atribuído</div>
+                  <div id="modal-assigned" class="mono text-lg font-bold">€ 0,00</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase text-slate-500">Movimentos</div>
+                  <div id="modal-movsum" class="mono text-lg font-bold">€ 0,00</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase text-slate-500">Falta</div>
+                  <div id="modal-diff" class="mono text-lg font-bold">€ 0,00</div>
+                </div>
+              </div>
+              <div id="modal-preview" class="text-xs text-slate-600 mb-3 p-3 bg-white rounded-lg border border-slate-200"></div>
+              <div class="flex items-center justify-end gap-2">
+                <button onclick="closeRecModal()" class="h-10 px-5 border border-slate-300 rounded-lg text-sm">Cancelar</button>
+                <button id="modal-confirm" onclick="confirmRec()" class="h-10 px-5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                  Confirmar
+                </button>
+              </div>
+              <div class="mt-2 text-[11px] text-amber-700 text-center flex items-center justify-center gap-1">
+                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                Modo dry-run ativo · pré-visualização sem escrever no TOConline
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 6. FATURAÇÃO ================ -->
+      <section id="page-faturacao" class="page animate-fade">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Contas a Receber</h2>
+            <p class="text-sm text-slate-500">Faturas de clientes e recebimentos previstos</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="exportTable('contas-a-receber')" class="h-9 px-3 sm:px-4 border border-slate-300 bg-white hover:bg-slate-50 rounded-lg text-sm">Exportar</button>
+            <button onclick="openNewReceivable()" class="h-9 px-3 sm:px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium flex items-center gap-2">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              <span>Nova Conta a Receber</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- KPIs + Aging -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Total a receber</div>
+            <div class="mono text-xl font-bold text-green-700">€ 184.520</div>
+            <div class="text-xs text-slate-400">23 faturas</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Vencidas</div>
+            <div class="mono text-xl font-bold text-red-700">€ 47.200</div>
+            <div class="text-xs text-slate-400">5 faturas</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">DSO médio</div>
+            <div class="mono text-xl font-bold">42 dias</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Recebido este mês</div>
+            <div class="mono text-xl font-bold">€ 162.800</div>
+          </div>
+        </div>
+
+        <!-- Aging -->
+        <div class="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 mb-6">
+          <h3 class="text-sm font-semibold mb-4">Aging por buckets</h3>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+              <div class="text-xs text-green-700 font-medium">0-30 dias</div>
+              <div class="mono text-lg font-bold text-green-800">€ 137.320</div>
+              <div class="h-1.5 bg-green-200 rounded-full mt-2 overflow-hidden"><div class="h-full bg-green-600" style="width:75%"></div></div>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div class="text-xs text-amber-700 font-medium">31-60 dias</div>
+              <div class="mono text-lg font-bold text-amber-800">€ 28.400</div>
+              <div class="h-1.5 bg-amber-200 rounded-full mt-2 overflow-hidden"><div class="h-full bg-amber-600" style="width:15%"></div></div>
+            </div>
+            <div class="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <div class="text-xs text-orange-700 font-medium">61-90 dias</div>
+              <div class="mono text-lg font-bold text-orange-800">€ 12.800</div>
+              <div class="h-1.5 bg-orange-200 rounded-full mt-2 overflow-hidden"><div class="h-full bg-orange-600" style="width:7%"></div></div>
+            </div>
+            <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+              <div class="text-xs text-red-700 font-medium">90+ dias</div>
+              <div class="mono text-lg font-bold text-red-800">€ 6.000</div>
+              <div class="h-1.5 bg-red-200 rounded-full mt-2 overflow-hidden"><div class="h-full bg-red-600" style="width:3%"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Invoices table -->
+        <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="p-4 border-b border-slate-200 flex items-center gap-3 flex-wrap">
+            <select class="h-9 px-3 border border-slate-300 rounded text-sm">
+              <option>Todos os estados</option><option>Recebido</option><option>Parcial</option><option>A receber</option><option>Vencido</option>
+            </select>
+            <select class="h-9 px-3 border border-slate-300 rounded text-sm">
+              <option>Todas as origens</option>
+              <option>TOConline</option>
+              <option>Local</option>
+            </select>
+            <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <input type="checkbox" class="rounded"> Só recorrentes
+            </label>
+            <input type="search" placeholder="Cliente, nº documento..." class="h-9 px-3 border border-slate-300 rounded text-sm flex-1 min-w-[180px]">
+          </div>
+          <div class="table-wrap scrollbar">
+          <table class="w-full text-sm min-w-[860px]">
+            <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+              <tr>
+                <th class="text-left px-4 py-3">Nº Documento</th>
+                <th class="text-left px-4 py-3">Entidade</th>
+                <th class="text-left px-4 py-3">Categoria</th>
+                <th class="text-left px-4 py-3">Vencimento</th>
+                <th class="text-right px-4 py-3">Valor</th>
+                <th class="text-right px-4 py-3">Pendente</th>
+                <th class="text-left px-4 py-3">Estado</th>
+                <th class="text-right px-4 py-3">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-brand-500" title="Sincronizado TOConline"></span>
+                    FAC 2026/A/0188
+                  </span>
+                </td>
+                <td class="px-4 py-3 font-medium">Sonae Indústria SA</td>
+                <td class="px-4 py-3 text-xs">Vendas produtos</td>
+                <td class="px-4 py-3 text-xs">12/04/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold">€ 18.500,00</td>
+                <td class="px-4 py-3 text-right mono text-blue-700">€ 18.500,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">A receber</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="viewPDF('FAC 2026/A/0188')" class="text-brand-600 hover:underline text-xs">PDF</button> · <button onclick="goReconcile('FAC 2026/A/0188')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                    FAC 2026/A/0186
+                  </span>
+                </td>
+                <td class="px-4 py-3 font-medium">Acme Tools, Lda</td>
+                <td class="px-4 py-3 text-xs">Vendas produtos</td>
+                <td class="px-4 py-3 text-xs text-red-600">05/04/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold">€ 12.400,00</td>
+                <td class="px-4 py-3 text-right mono text-red-700">€ 12.400,00</td>
+                <td class="px-4 py-3"><span class="badge bg-red-100 text-red-700">Vencido</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="viewPDF('FAC 2026/A/0186')" class="text-brand-600 hover:underline text-xs">PDF</button> · <button onclick="sendReminder('FAC 2026/A/0186', 'Acme Tools')" class="text-brand-600 hover:underline text-xs">Lembrete</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                    FAC 2026/A/0178
+                  </span>
+                </td>
+                <td class="px-4 py-3 font-medium">Galp Energia</td>
+                <td class="px-4 py-3 text-xs">Serviços</td>
+                <td class="px-4 py-3 text-xs">25/03/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold">€ 8.900,00</td>
+                <td class="px-4 py-3 text-right mono text-amber-700">€ 5.400,00</td>
+                <td class="px-4 py-3"><span class="badge bg-amber-100 text-amber-700">Parcial</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="viewPDF('FAC 2026/A/0178')" class="text-brand-600 hover:underline text-xs">PDF</button> · <button onclick="goReconcile('Galp Energia')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50 bg-slate-50/40">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5" title="Apenas local (não sincroniza TOConline)">
+                    <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+                    LOC-2026/03
+                  </span>
+                </td>
+                <td class="px-4 py-3 font-medium">
+                  Subaluguer espaço
+                  <span class="ml-1 inline-flex items-center gap-1 text-[10px] text-slate-500">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    Mensal
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-xs">Outros rendimentos</td>
+                <td class="px-4 py-3 text-xs">05/05/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold">€ 1.200,00</td>
+                <td class="px-4 py-3 text-right mono text-blue-700">€ 1.200,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">A receber</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="openNewReceivable()" class="text-brand-600 hover:underline text-xs">Editar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                    FAC 2026/A/0175
+                  </span>
+                </td>
+                <td class="px-4 py-3 font-medium">EDP Comercial</td>
+                <td class="px-4 py-3 text-xs">Vendas produtos</td>
+                <td class="px-4 py-3 text-xs">22/03/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold">€ 12.800,00</td>
+                <td class="px-4 py-3 text-right mono text-slate-400">€ 0,00</td>
+                <td class="px-4 py-3"><span class="badge bg-green-100 text-green-700">Recebido</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="viewPDF('FAC 2026/A/0175')" class="text-brand-600 hover:underline text-xs">PDF</button></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+          <div class="px-4 py-2.5 border-t border-slate-200 text-xs text-slate-500 flex items-center gap-4">
+            <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span> Sincronizado TOConline</span>
+            <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span> Apenas local</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 7. CONTAS A PAGAR ================ -->
+      <section id="page-compras" class="page animate-fade">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Contas a Pagar</h2>
+            <p class="text-sm text-slate-500">Faturas de fornecedores e pagamentos previstos (incl. salários, rendas, impostos)</p>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="openSchedule()" class="h-9 px-3 sm:px-4 border border-slate-300 bg-white hover:bg-slate-50 rounded-lg text-sm">Agendar</button>
+            <button onclick="openNewPayable()" class="h-9 px-3 sm:px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium">+ Nova Conta a Pagar</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Total a pagar</div>
+            <div class="mono text-xl font-bold text-red-700">€ 97.240</div>
+            <div class="text-xs text-slate-400">14 compras</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Vencidas</div>
+            <div class="mono text-xl font-bold text-red-700">€ 18.400</div>
+            <div class="text-xs text-slate-400">3 compras</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">DPO médio</div>
+            <div class="mono text-xl font-bold">38 dias</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase">Pago este mês</div>
+            <div class="mono text-xl font-bold">€ 78.200</div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="p-4 border-b border-slate-200 flex items-center gap-3 flex-wrap">
+            <select class="h-9 px-3 border border-slate-300 rounded text-sm">
+              <option>Todos os estados</option><option>Pago</option><option>Parcial</option><option>Por pagar</option><option>Vencido</option>
+            </select>
+            <select class="h-9 px-3 border border-slate-300 rounded text-sm">
+              <option>Todas as origens</option>
+              <option>TOConline</option>
+              <option>Local</option>
+            </select>
+            <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <input type="checkbox" class="rounded"> Só recorrentes
+            </label>
+            <input type="search" placeholder="Fornecedor, nº documento..." class="h-9 px-3 border border-slate-300 rounded text-sm flex-1 min-w-[180px]">
+          </div>
+          <div class="table-wrap scrollbar">
+          <table class="w-full text-sm min-w-[860px]">
+            <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+              <tr>
+                <th class="text-left px-4 py-3">Nº Documento</th>
+                <th class="text-left px-4 py-3">Entidade</th>
+                <th class="text-left px-4 py-3">Categoria</th>
+                <th class="text-left px-4 py-3">Vencimento</th>
+                <th class="text-right px-4 py-3">Valor</th>
+                <th class="text-right px-4 py-3">Pendente</th>
+                <th class="text-left px-4 py-3">Estado</th>
+                <th class="text-right px-4 py-3">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-brand-500" title="TOConline"></span>FC 78234</span>
+                </td>
+                <td class="px-4 py-3 font-medium">NOS Comunicações</td>
+                <td class="px-4 py-3 text-xs">Comunicações</td>
+                <td class="px-4 py-3 text-xs">18/04/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">€ 3.200,00</td>
+                <td class="px-4 py-3 text-right mono text-red-700">€ 3.200,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">Por pagar</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="goReconcile('CP')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>FC 12984</span>
+                </td>
+                <td class="px-4 py-3 font-medium">REN</td>
+                <td class="px-4 py-3 text-xs">Utilities</td>
+                <td class="px-4 py-3 text-xs text-red-600">02/04/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">€ 15.800,00</td>
+                <td class="px-4 py-3 text-right mono text-red-700">€ 15.800,00</td>
+                <td class="px-4 py-3"><span class="badge bg-red-100 text-red-700">Vencido</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="goReconcile('CP')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>FC 78421</span>
+                </td>
+                <td class="px-4 py-3 font-medium">Acme Tools, Lda</td>
+                <td class="px-4 py-3 text-xs">Materiais</td>
+                <td class="px-4 py-3 text-xs">20/04/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">€ 8.340,00</td>
+                <td class="px-4 py-3 text-right mono text-amber-700">€ 4.200,00</td>
+                <td class="px-4 py-3"><span class="badge bg-amber-100 text-amber-700">Parcial</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="goReconcile('CP')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50 bg-slate-50/40">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5" title="Apenas local"><span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>LOC-SAL/04</span>
+                </td>
+                <td class="px-4 py-3 font-medium">
+                  Salários equipa
+                  <span class="ml-1 inline-flex items-center gap-1 text-[10px] text-slate-500">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    Mensal
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-xs">Recursos Humanos</td>
+                <td class="px-4 py-3 text-xs">25/04/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">€ 48.000,00</td>
+                <td class="px-4 py-3 text-right mono text-red-700">€ 48.000,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">Por pagar</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="goReconcile('CP')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50 bg-slate-50/40">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>LOC-RND/05</span>
+                </td>
+                <td class="px-4 py-3 font-medium">
+                  Renda escritório
+                  <span class="ml-1 inline-flex items-center gap-1 text-[10px] text-slate-500">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    Mensal
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-xs">Instalações</td>
+                <td class="px-4 py-3 text-xs">01/05/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">€ 4.500,00</td>
+                <td class="px-4 py-3 text-right mono text-red-700">€ 4.500,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">Por pagar</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="goReconcile('CP')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+              <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 mono text-xs">
+                  <span class="inline-flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>FC 9821</span>
+                </td>
+                <td class="px-4 py-3 font-medium">Autoridade Tributária</td>
+                <td class="px-4 py-3 text-xs">Impostos</td>
+                <td class="px-4 py-3 text-xs">13/04/2026</td>
+                <td class="px-4 py-3 text-right mono font-semibold text-red-700">€ 12.400,00</td>
+                <td class="px-4 py-3 text-right mono text-red-700">€ 12.400,00</td>
+                <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">Por pagar</span></td>
+                <td class="px-4 py-3 text-right"><button onclick="goReconcile('CP')" class="text-brand-600 hover:underline text-xs">Reconciliar</button></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+          <div class="px-4 py-2.5 border-t border-slate-200 text-xs text-slate-500 flex items-center gap-4">
+            <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span> Sincronizado TOConline</span>
+            <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span> Apenas local</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 8. DEFINIÇÕES ================ -->
+      <section id="page-definicoes" class="page animate-fade">
+        <div class="mb-6">
+          <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Definições</h2>
+          <p class="text-sm text-slate-500">Configurações da aplicação</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6">
+          <nav class="lg:col-span-1 flex lg:flex-col gap-1 overflow-x-auto scrollbar pb-2 lg:pb-0">
+            <button class="lg:w-full text-left px-4 py-2.5 rounded-lg hover:bg-slate-100 text-sm flex items-center gap-3 shrink-0 whitespace-nowrap">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+              Empresa
+            </button>
+            <button class="lg:w-full text-left px-4 py-2.5 rounded-lg hover:bg-slate-100 text-sm flex items-center gap-3 shrink-0 whitespace-nowrap">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+              Utilizadores
+            </button>
+            <button class="lg:w-full text-left px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium flex items-center gap-3 shrink-0 whitespace-nowrap">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+              Categorias
+            </button>
+            <button class="lg:w-full text-left px-4 py-2.5 rounded-lg hover:bg-slate-100 text-sm flex items-center gap-3 shrink-0 whitespace-nowrap">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+              Notificações
+            </button>
+            <button class="lg:w-full text-left px-4 py-2.5 rounded-lg hover:bg-slate-100 text-sm flex items-center gap-3 shrink-0 whitespace-nowrap">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+              Integrações
+            </button>
+            <button class="lg:w-full text-left px-4 py-2.5 rounded-lg hover:bg-slate-100 text-sm flex items-center gap-3 shrink-0 whitespace-nowrap">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
+              Segurança
+            </button>
+            <button class="lg:w-full text-left px-4 py-2.5 rounded-lg hover:bg-slate-100 text-sm flex items-center gap-3 shrink-0 whitespace-nowrap">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              Auditoria
+            </button>
+          </nav>
+
+          <div class="lg:col-span-3 bg-white rounded-xl border border-slate-200 p-4 sm:p-6">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+              <div>
+                <h3 class="text-lg font-semibold">Categorias de Tesouraria</h3>
+                <p class="text-sm text-slate-500">Definem a natureza das operações e se sincronizam com o TOConline</p>
+              </div>
+              <button class="h-9 px-4 bg-brand-600 text-white rounded-lg text-sm font-medium whitespace-nowrap">+ Nova Categoria</button>
+            </div>
+
+            <!-- Help callout about the flag -->
+            <div class="mb-5 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
+              <div class="font-semibold text-blue-900 mb-1">Flag "Lança no TOConline"</div>
+              <div class="text-blue-800">
+                Categorias com <strong>Lança TOConline = Sim</strong> geram documentos no TOConline e, ao reconciliar, emitem recibos/pagamentos automaticamente.
+                Categorias com <strong>Não</strong> (salários, rendas, IRS...) ficam apenas locais — aparecem nas listas de Contas a Receber/Pagar com um ponto cinza e são reconciliadas sem escrever nada no TOConline.
+              </div>
+            </div>
+
+            <div class="border border-slate-200 rounded-lg overflow-hidden">
+              <div class="table-wrap scrollbar">
+              <table class="w-full text-sm min-w-[680px]">
+                <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+                  <tr>
+                    <th class="text-left px-4 py-3">Categoria</th>
+                    <th class="text-left px-4 py-3">Tipo</th>
+                    <th class="text-left px-4 py-3">Lança TOConline</th>
+                    <th class="text-left px-4 py-3">Mapping TOConline</th>
+                    <th class="text-right px-4 py-3">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50">
+                    <td class="px-4 py-3 font-medium">Vendas produtos</td>
+                    <td class="px-4 py-3"><span class="badge bg-green-100 text-green-700">Receita</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-brand-700 font-medium">Sim</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-500">Vendas · IVA 23%</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50">
+                    <td class="px-4 py-3 font-medium">Serviços prestados</td>
+                    <td class="px-4 py-3"><span class="badge bg-green-100 text-green-700">Receita</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-brand-700 font-medium">Sim</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-500">Serviços · IVA 23%</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50 bg-slate-50/40">
+                    <td class="px-4 py-3 font-medium">
+                      <span class="inline-flex items-center gap-1.5">
+                        <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                        Outros rendimentos
+                      </span>
+                    </td>
+                    <td class="px-4 py-3"><span class="badge bg-green-100 text-green-700">Receita</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-slate-500">Não</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-400">—</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50">
+                    <td class="px-4 py-3 font-medium">Compras materiais</td>
+                    <td class="px-4 py-3"><span class="badge bg-red-100 text-red-700">Despesa</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-brand-700 font-medium">Sim</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-500">Mercadorias</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50">
+                    <td class="px-4 py-3 font-medium">Comunicações</td>
+                    <td class="px-4 py-3"><span class="badge bg-red-100 text-red-700">Despesa</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-brand-700 font-medium">Sim</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-500">Comunicações</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50 bg-slate-50/40">
+                    <td class="px-4 py-3 font-medium">
+                      <span class="inline-flex items-center gap-1.5">
+                        <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+                        Recursos Humanos (Salários)
+                      </span>
+                    </td>
+                    <td class="px-4 py-3"><span class="badge bg-red-100 text-red-700">Despesa</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-slate-500">Não</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-400">— (local)</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50 bg-slate-50/40">
+                    <td class="px-4 py-3 font-medium">
+                      <span class="inline-flex items-center gap-1.5">
+                        <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+                        Instalações (Rendas)
+                      </span>
+                    </td>
+                    <td class="px-4 py-3"><span class="badge bg-red-100 text-red-700">Despesa</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-slate-500">Não</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-400">— (local)</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50 bg-slate-50/40">
+                    <td class="px-4 py-3 font-medium">
+                      <span class="inline-flex items-center gap-1.5">
+                        <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+                        Impostos (IRS, IVA)
+                      </span>
+                    </td>
+                    <td class="px-4 py-3"><span class="badge bg-red-100 text-red-700">Despesa</span></td>
+                    <td class="px-4 py-3">
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                        <span class="ml-2 text-xs text-slate-500">Não</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-400">— (local)</td>
+                    <td class="px-4 py-3 text-right"><button class="text-brand-600 text-xs">Editar</button></td>
+                  </tr>
+                </tbody>
+              </table>
+              </div>
+            </div>
+
+            <div class="mt-4 text-xs text-slate-500 flex items-center gap-4 flex-wrap">
+              <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span> Com sincronização TOConline</span>
+              <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span> Apenas local</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================ 10. AJUDA ================ -->
+      <section id="page-ajuda" class="page animate-fade">
+        <div class="max-w-4xl mx-auto">
+          <div class="text-center mb-10">
+            <h2 class="text-3xl font-bold text-slate-900">Como podemos ajudar?</h2>
+            <p class="text-slate-500 mt-2">Pesquise na base de conhecimento ou contacte o suporte</p>
+            <div class="relative max-w-xl mx-auto mt-6">
+              <svg class="absolute left-4 top-4 h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <input type="search" placeholder="Pesquisar artigos..." class="w-full h-12 pl-12 pr-4 border border-slate-300 rounded-lg text-base">
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 mb-10">
+            <div class="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-lg transition">
+              <div class="h-10 w-10 bg-blue-100 rounded-lg flex items-center justify-center mb-3">
+                <svg class="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+              </div>
+              <h3 class="font-semibold">Primeiros Passos</h3>
+              <ul class="mt-3 space-y-2 text-sm text-slate-600">
+                <li>· Ligar ao TOConline</li>
+                <li>· Importar primeiro extrato</li>
+                <li>· Configurar contas bancárias</li>
+              </ul>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-lg transition">
+              <div class="h-10 w-10 bg-green-100 rounded-lg flex items-center justify-center mb-3">
+                <svg class="h-5 w-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4"/></svg>
+              </div>
+              <h3 class="font-semibold">Reconciliação</h3>
+              <ul class="mt-3 space-y-2 text-sm text-slate-600">
+                <li>· Como reconciliar movimentos</li>
+                <li>· Matching automático</li>
+                <li>· Modo dry-run</li>
+              </ul>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-lg transition">
+              <div class="h-10 w-10 bg-purple-100 rounded-lg flex items-center justify-center mb-3">
+                <svg class="h-5 w-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+              </div>
+              <h3 class="font-semibold">Previsão</h3>
+              <ul class="mt-3 space-y-2 text-sm text-slate-600">
+                <li>· Entender os cenários</li>
+                <li>· Configurar fluxos recorrentes</li>
+                <li>· Alertas de saldo</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="bg-gradient-to-r from-brand-600 to-brand-700 rounded-xl p-5 sm:p-6 text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="font-semibold text-lg">Precisa de ajuda adicional?</h3>
+              <p class="text-sm opacity-90 mt-1">A nossa equipa responde em 24h úteis</p>
+            </div>
+            <button class="h-10 px-5 bg-white text-brand-700 rounded-lg text-sm font-medium">Contactar Suporte</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+// ============ NAVIGATION ============
+const titles = {
+  dashboard: 'Visão Geral',
+  detalhado: 'Dashboard Detalhado',
+  previsao: 'Previsão',
+  bancos: 'Bancos & Movimentos',
+  reconciliacao: 'Reconciliação',
+  faturacao: 'Contas a Receber',
+  compras: 'Contas a Pagar',
+  definicoes: 'Definições',
+  ajuda: 'Ajuda'
+};
+
+function nav(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+  document.querySelector(`[data-nav="${page}"]`).classList.add('active');
+  document.getElementById('page-title').textContent = titles[page];
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  if (window.innerWidth < 1024) toggleSidebar(false);
+  // Mostra/esconde barra flutuante de reconciliação conforme a página
+  const bar = document.getElementById('rec-bar');
+  if (bar) {
+    if (page === 'reconciliacao') updateRecBar();
+    else bar.classList.add('hidden');
+  }
+}
+
+// ============ RECONCILIATION ============
+const fmt = n => '€ ' + n.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function updateRecBar() {
+  const movs = [...document.querySelectorAll('.mov-cb:checked')];
+  const invs = [...document.querySelectorAll('.inv-cb:checked')];
+  const movSum = movs.reduce((s, c) => s + Math.abs(parseFloat(c.dataset.amount)), 0);
+  const invSum = invs.reduce((s, c) => s + parseFloat(c.dataset.pending), 0);
+
+  // Determinar sentido obrigatório
+  // sentido = 'in'  → só movimentos positivos + faturas AR
+  // sentido = 'out' → só movimentos negativos + faturas AP
+  // sentido = null  → tudo livre
+  let sentido = null;
+  if (movs.length > 0) {
+    sentido = parseFloat(movs[0].dataset.amount) >= 0 ? 'in' : 'out';
+  } else if (invs.length > 0) {
+    sentido = invs[0].dataset.type === 'AR' ? 'in' : 'out';
+  }
+  applyRecLock(sentido);
+
+  const bar = document.getElementById('rec-bar');
+  if (!bar) return;
+  if (movs.length === 0 && invs.length === 0) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  document.getElementById('rb-mov-count').textContent = movs.length;
+  document.getElementById('rb-mov-sum').textContent = fmt(movSum);
+  document.getElementById('rb-inv-count').textContent = invs.length;
+  document.getElementById('rb-inv-sum').textContent = fmt(invSum);
+  const confirmBtn = document.getElementById('rb-confirm');
+  confirmBtn.disabled = movs.length === 0 || invs.length === 0;
+}
+
+function applyRecLock(sentido) {
+  // Movimentos: bloqueia os do sentido oposto
+  document.querySelectorAll('.mov-cb').forEach(c => {
+    const isPositive = parseFloat(c.dataset.amount) >= 0;
+    const allowed = sentido === null
+      || (sentido === 'in' && isPositive)
+      || (sentido === 'out' && !isPositive);
+    setLock(c, !allowed,
+      sentido === 'in'  ? 'Já há entradas selecionadas — não pode misturar com saídas'
+                        : 'Já há saídas selecionadas — não pode misturar com entradas');
+  });
+  // Faturas: bloqueia as do tipo oposto
+  document.querySelectorAll('.inv-cb').forEach(c => {
+    const isAR = c.dataset.type === 'AR';
+    const allowed = sentido === null
+      || (sentido === 'in' && isAR)
+      || (sentido === 'out' && !isAR);
+    setLock(c, !allowed,
+      sentido === 'in'  ? 'Movimentos de entrada só podem ser associados a contas a receber'
+                        : 'Movimentos de saída só podem ser associados a contas a pagar');
+  });
+}
+
+function setLock(checkbox, locked, reason) {
+  const label = checkbox.closest('label');
+  if (!label) return;
+  if (locked) {
+    checkbox.disabled = true;
+    label.classList.add('opacity-40', 'cursor-not-allowed');
+    label.classList.remove('cursor-pointer', 'hover:bg-slate-50');
+    label.title = reason;
+  } else {
+    checkbox.disabled = false;
+    label.classList.remove('opacity-40', 'cursor-not-allowed');
+    label.classList.add('cursor-pointer', 'hover:bg-slate-50');
+    label.title = '';
+  }
+}
+
+function toggleAllMov(el) {
+  document.querySelectorAll('.mov-cb').forEach(c => { if (!c.disabled) c.checked = el.checked; });
+  updateRecBar();
+}
+function toggleAllInv(el) {
+  document.querySelectorAll('.inv-cb').forEach(c => { if (!c.disabled) c.checked = el.checked; });
+  updateRecBar();
+}
+function clearRecSel() {
+  document.querySelectorAll('.mov-cb, .inv-cb').forEach(c => c.checked = false);
+  updateRecBar();
+}
+
+function openRecModal() {
+  const movs = [...document.querySelectorAll('.mov-cb:checked')];
+  const invs = [...document.querySelectorAll('.inv-cb:checked')];
+  if (movs.length === 0 || invs.length === 0) return;
+  const movSum = movs.reduce((s, c) => s + Math.abs(parseFloat(c.dataset.amount)), 0);
+
+  // Render movements (read only)
+  const movListEl = document.getElementById('modal-mov-list');
+  movListEl.innerHTML = movs.map(c => {
+    const amt = Math.abs(parseFloat(c.dataset.amount));
+    const sign = parseFloat(c.dataset.amount) >= 0 ? 'text-green-700' : 'text-red-700';
+    const lbl = c.closest('label').querySelector('.text-sm.font-medium').textContent;
+    const meta = c.closest('label').querySelector('.text-xs.text-slate-500').textContent;
+    return `<div class="flex items-start justify-between gap-2 p-2 bg-slate-50 rounded border border-slate-200">
+      <div class="min-w-0"><div class="font-medium truncate">${lbl}</div><div class="text-[11px] text-slate-500">${meta}</div></div>
+      <div class="mono font-semibold ${sign} whitespace-nowrap">${fmt(amt)}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('modal-mov-total').textContent = fmt(movSum);
+
+  // Distribute amounts (greedy) across invoices
+  let remaining = movSum;
+  const assigned = invs.map(c => {
+    const pending = parseFloat(c.dataset.pending);
+    const take = Math.min(pending, remaining);
+    remaining -= take;
+    return take;
+  });
+
+  // Render invoices (editable)
+  const invListEl = document.getElementById('modal-inv-list');
+  invListEl.innerHTML = invs.map((c, i) => {
+    const pending = parseFloat(c.dataset.pending);
+    const local = c.dataset.toc === 'false';
+    const typeBadge = c.dataset.type === 'AR'
+      ? '<span class="badge bg-green-100 text-green-700 text-[10px]">Receber</span>'
+      : '<span class="badge bg-red-100 text-red-700 text-[10px]">Pagar</span>';
+    const dot = local
+      ? '<span class="h-1.5 w-1.5 rounded-full bg-slate-400" title="Local"></span>'
+      : '<span class="h-1.5 w-1.5 rounded-full bg-brand-500" title="TOConline"></span>';
+    return `<div class="border border-slate-200 rounded-lg p-3">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div class="flex-1 min-w-[180px]">
+          <div class="flex items-center gap-2 flex-wrap">${dot}<span class="text-sm font-medium">${c.dataset.entity}</span>${typeBadge}</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">${c.dataset.ref} · Pendente <span class="mono font-semibold">${fmt(pending)}</span></div>
+        </div>
+        <div>
+          <div class="text-[10px] uppercase text-slate-500 text-right">A dar baixa</div>
+          <div class="flex items-center gap-1 mt-0.5">
+            <span class="text-sm mono text-slate-600">€</span>
+            <input type="number" step="0.01" value="${assigned[i].toFixed(2)}" data-max="${pending}" class="inv-amount w-28 h-8 px-2 border border-slate-300 rounded text-sm mono text-right" oninput="recalcModal()">
+          </div>
+          <div class="text-[10px] text-slate-400 text-right mt-0.5">max ${fmt(pending)}</div>
+        </div>
+      </div>
+      <div class="mt-2 text-[11px] ${local ? 'text-slate-500' : 'text-green-700'} flex items-center gap-1">
+        ${local
+          ? '<span>Reconciliação apenas local — não escreve no TOConline</span>'
+          : (c.dataset.type === 'AR'
+              ? '<span>Criará recibo no TOConline</span>'
+              : '<span>Criará pagamento a fornecedor no TOConline</span>')}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('modal-movsum').textContent = fmt(movSum);
+  document.getElementById('rec-modal').dataset.movsum = movSum;
+  document.getElementById('rec-modal').classList.remove('hidden');
+  document.body.classList.add('no-scroll');
+  recalcModal();
+}
+
+function recalcModal() {
+  const inputs = [...document.querySelectorAll('.inv-amount')];
+  let invalid = false;
+  const assigned = inputs.reduce((s, i) => {
+    const v = parseFloat(i.value) || 0;
+    const max = parseFloat(i.dataset.max);
+    if (v > max + 0.001 || v < 0) { invalid = true; i.classList.add('border-red-500'); }
+    else i.classList.remove('border-red-500');
+    return s + v;
+  }, 0);
+  const movsum = parseFloat(document.getElementById('rec-modal').dataset.movsum);
+  const diff = +(movsum - assigned).toFixed(2);
+  document.getElementById('modal-assigned').textContent = fmt(assigned);
+  const diffEl = document.getElementById('modal-diff');
+  diffEl.textContent = Math.abs(diff) < 0.005 ? '€ 0,00 ✓' : fmt(diff);
+  diffEl.className = 'mono text-lg font-bold ' + (Math.abs(diff) < 0.005 ? 'text-green-700' : 'text-red-700');
+
+  const invs = [...document.querySelectorAll('.inv-cb:checked')];
+  const recCount = invs.filter(c => c.dataset.toc === 'true' && c.dataset.type === 'AR').length;
+  const payCount = invs.filter(c => c.dataset.toc === 'true' && c.dataset.type === 'AP').length;
+  const locCount = invs.filter(c => c.dataset.toc === 'false').length;
+  const parts = [];
+  if (recCount) parts.push(`<strong>${recCount}</strong> recibo${recCount > 1 ? 's' : ''}`);
+  if (payCount) parts.push(`<strong>${payCount}</strong> pagamento${payCount > 1 ? 's' : ''}`);
+  if (locCount) parts.push(`<strong>${locCount}</strong> operação${locCount > 1 ? 'ões' : ''} local${locCount > 1 ? 'is' : ''}`);
+  document.getElementById('modal-preview').innerHTML = 'Ao confirmar serão criados: ' + parts.join(' + ') + ' no TOConline (exceto operações locais).';
+
+  document.getElementById('modal-confirm').disabled = invalid || Math.abs(diff) >= 0.005;
+}
+
+function closeRecModal() {
+  document.getElementById('rec-modal').classList.add('hidden');
+  document.body.classList.remove('no-scroll');
+}
+function confirmRec() {
+  closeRecModal();
+  clearRecSel();
+  toast('Reconciliação confirmada · 2 recibos criados no TOConline (dry-run)', 'success');
+}
+
+function toggleSidebar(open) {
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebar-backdrop');
+  const willOpen = open === undefined ? !sb.classList.contains('open') : open;
+  if (willOpen) {
+    sb.classList.add('open');
+    bd.classList.remove('hidden');
+    document.body.classList.add('no-scroll');
+  } else {
+    sb.classList.remove('open');
+    bd.classList.add('hidden');
+    document.body.classList.remove('no-scroll');
+  }
+}
+
+function logout() {
+  document.getElementById('app-shell').classList.add('hidden');
+  document.getElementById('auth-screen').classList.remove('hidden');
+}
+function enterApp() {
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('app-shell').classList.remove('hidden');
+}
+
+// ============ CHARTS ============
+const brandBlue = '#2563eb';
+const brandBlueLight = 'rgba(37, 99, 235, 0.1)';
+
+window.addEventListener('DOMContentLoaded', () => {
+  // Aplicar lock inicial da reconciliação
+  if (typeof updateRecBar === 'function') updateRecBar();
+
+  // Balance evolution
+  new Chart(document.getElementById('chartBalance'), {
+    type: 'line',
+    data: {
+      labels: ['1 Abr','3','5','7','9','11','13','15','17','19','21','23','25','27','29','1 Mai'],
+      datasets: [{
+        label: 'Saldo',
+        data: [420000, 435000, 428000, 445000, 460000, 455000, 468000, 472000, 478000, 481000, 485000, 479000, 483000, 487000, 492000, 487340],
+        borderColor: brandBlue,
+        backgroundColor: brandBlueLight,
+        fill: true, tension: 0.35, borderWidth: 2, pointRadius: 0, pointHoverRadius: 5
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { ticks: { callback: v => '€ ' + (v/1000).toFixed(0) + 'K' } } }
+    }
+  });
+
+  // Flow
+  new Chart(document.getElementById('chartFlow'), {
+    type: 'bar',
+    data: {
+      labels: ['Jan','Fev','Mar','Abr'],
+      datasets: [
+        { label: 'Entradas', data: [190,210,218,205], backgroundColor: '#10b981' },
+        { label: 'Saídas', data: [-118,-124,-127,-129], backgroundColor: '#ef4444' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+      scales: { y: { ticks: { callback: v => v + 'K' } } }
+    }
+  });
+
+  // Burn rate
+  new Chart(document.getElementById('chartBurn'), {
+    type: 'line',
+    data: {
+      labels: ['Out','Nov','Dez','Jan','Fev','Mar','Abr'],
+      datasets: [{
+        label: 'Burn mensal', data: [92,95,101,98,96,99,98],
+        borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)',
+        fill: true, tension: 0.35, borderWidth: 2
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+  });
+
+  // Forecast
+  const days = Array.from({length: 91}, (_,i) => i);
+  const base = days.map(d => 487340 + d*1800 + Math.sin(d/6)*8000);
+  const cons = days.map(d => 487340 + d*600 + Math.sin(d/5)*10000);
+  const opti = days.map(d => 487340 + d*2800 + Math.sin(d/7)*7000);
+  new Chart(document.getElementById('chartForecast'), {
+    type: 'line',
+    data: {
+      labels: days.map(d => d % 15 === 0 ? `+${d}d` : ''),
+      datasets: [
+        { label: 'Base', data: base, borderColor: brandBlue, backgroundColor: brandBlueLight, fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0 },
+        { label: 'Conservador', data: cons, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', fill: false, tension: 0.3, borderWidth: 2, pointRadius: 0, borderDash: [4,4] },
+        { label: 'Otimista', data: opti, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', fill: false, tension: 0.3, borderWidth: 2, pointRadius: 0, borderDash: [4,4] }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { ticks: { callback: v => '€ ' + (v/1000).toFixed(0) + 'K' } } }
+    }
+  });
+});
+
+// ============ GENERIC MODAL ============
+let _modalConfirm = null;
+function openModal(title, html, onConfirm, opts = {}) {
+  _modalConfirm = onConfirm;
+  document.getElementById('gm-title').textContent = title;
+  document.getElementById('gm-body').innerHTML = html;
+  const cBtn = document.getElementById('gm-confirm');
+  cBtn.textContent = opts.confirmLabel || 'Confirmar';
+  cBtn.className = 'h-10 px-5 text-white rounded-lg text-sm font-medium ' + (opts.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700');
+  document.getElementById('gm-cancel').textContent = opts.cancelLabel || 'Cancelar';
+  cBtn.style.display = opts.hideConfirm ? 'none' : '';
+  document.getElementById('app-modal').classList.remove('hidden');
+  document.body.classList.add('no-scroll');
+}
+function closeModal() {
+  document.getElementById('app-modal').classList.add('hidden');
+  document.body.classList.remove('no-scroll');
+  _modalConfirm = null;
+}
+function confirmModal() {
+  const fn = _modalConfirm;
+  closeModal();
+  if (fn) fn();
+}
+
+// ============ TOASTS ============
+function toast(msg, type = 'info') {
+  const stack = document.getElementById('toast-stack');
+  const t = document.createElement('div');
+  const colors = {
+    info:    'bg-slate-900 text-white',
+    success: 'bg-green-600 text-white',
+    warning: 'bg-amber-500 text-white',
+    error:   'bg-red-600 text-white',
+  };
+  const icons = {
+    info:    '<svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+    success: '<svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>',
+    warning: '<svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>',
+    error:   '<svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>',
+  };
+  t.className = 'flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm animate-fade ' + (colors[type] || colors.info);
+  t.innerHTML = icons[type] + '<span>' + msg + '</span>';
+  stack.appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity .3s'; t.style.opacity = '0'; }, 3500);
+  setTimeout(() => t.remove(), 3900);
+}
+
+// ============ BANCOS ============
+function openNewBank() {
+  openModal('Nova Conta Bancária', `
+    <div class="space-y-4">
+      <div>
+        <label class="text-xs font-medium text-slate-600">Nome da conta</label>
+        <input id="nb-name" placeholder="Ex.: BCP — Principal" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-600">Banco</label>
+          <select id="nb-bank" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+            <option>Millennium BCP</option><option>Caixa Geral de Depósitos</option><option>Santander</option>
+            <option>Novobanco</option><option>BPI</option><option>Montepio</option><option>ActivoBank</option>
+            <option>Revolut</option><option>Wise</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Moeda</label>
+          <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm"><option>EUR</option><option>USD</option><option>GBP</option></select>
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">IBAN</label>
+        <input id="nb-iban" placeholder="PT50 0000 0000 0000 0000 000" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm mono">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-600">Saldo inicial</label>
+          <input type="number" step="0.01" placeholder="0,00" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm mono text-right">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Saldo mínimo (alerta)</label>
+          <input type="number" step="0.01" placeholder="5000,00" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm mono text-right">
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-600 pt-2">
+        <input type="checkbox" checked> Sincronizar com TOConline (POST /api/bank_accounts)
+      </label>
+    </div>
+  `, () => {
+    const name = document.getElementById('nb-name').value || 'Nova conta';
+    toast(`Conta bancária "${name}" criada e sincronizada com TOConline`, 'success');
+  }, { confirmLabel: 'Criar conta' });
+}
+
+function openImportBank() {
+  openModal('Importar Movimentos Bancários', `
+    <div class="space-y-4">
+      <div>
+        <label class="text-xs font-medium text-slate-600">Conta bancária</label>
+        <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+          <option>Millennium BCP — ...756</option>
+          <option>CGD — ...841</option>
+          <option>Santander Negócios — ...221</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Formato</label>
+        <div class="grid grid-cols-3 gap-2 mt-1">
+          <label class="flex items-center justify-center h-12 border-2 border-brand-500 bg-brand-50 rounded-lg cursor-pointer text-sm font-medium text-brand-700">
+            <input type="radio" name="fmt" class="hidden" checked> CSV
+          </label>
+          <label class="flex items-center justify-center h-12 border border-slate-300 rounded-lg cursor-pointer text-sm">
+            <input type="radio" name="fmt" class="hidden"> PDF
+          </label>
+          <label class="flex items-center justify-center h-12 border border-slate-300 rounded-lg cursor-pointer text-sm">
+            <input type="radio" name="fmt" class="hidden"> OFX
+          </label>
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Ficheiro</label>
+        <div class="mt-1 border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-brand-500 transition cursor-pointer">
+          <svg class="h-10 w-10 mx-auto text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          <div class="mt-2 text-sm text-slate-600">Arraste o ficheiro ou <span class="text-brand-600 font-medium">escolha do disco</span></div>
+          <div class="text-xs text-slate-400 mt-1">Máx. 10 MB · CSV/PDF/OFX</div>
+          <input type="file" class="hidden">
+        </div>
+      </div>
+      <div class="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+        <svg class="h-4 w-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div>O sistema deteta duplicados automaticamente (hash de data + valor + descrição) e classifica movimentos conhecidos por regras existentes.</div>
+      </div>
+    </div>
+  `, () => {
+    toast('Ficheiro processado: 23 novos movimentos · 4 duplicados ignorados · 12 classificados automaticamente', 'success');
+  }, { confirmLabel: 'Importar' });
+}
+
+function classifyMovement(desc, amt) {
+  openModal('Classificar movimento', `
+    <div class="space-y-4">
+      <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+        <div>
+          <div class="text-xs text-slate-500">Movimento</div>
+          <div class="font-medium text-sm">${desc}</div>
+        </div>
+        <div class="mono font-semibold ${amt >= 0 ? 'text-green-700' : 'text-red-700'}">${amt >= 0 ? '+ ' : '- '}${fmt(Math.abs(amt))}</div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Categoria de tesouraria</label>
+        <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+          <option>— Escolher —</option>
+          <option>Vendas produtos</option>
+          <option>Serviços prestados</option>
+          <option>Compras materiais</option>
+          <option>Comunicações</option>
+          <option>Recursos Humanos (Salários)</option>
+          <option>Instalações (Rendas)</option>
+          <option>Impostos (IRS, IVA)</option>
+          <option>Outros rendimentos</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Entidade (opcional)</label>
+        <input placeholder="Cliente ou fornecedor..." class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox"> Criar regra automática para movimentos futuros desta entidade
+      </label>
+    </div>
+  `, () => {
+    toast('Movimento classificado', 'success');
+  }, { confirmLabel: 'Classificar' });
+}
+
+// ============ CONTAS A RECEBER ============
+function openNewReceivable() {
+  openModal('Nova Conta a Receber', `
+    <div class="space-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-600">Cliente</label>
+          <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+            <option>— Escolher —</option>
+            <option>Sonae Indústria SA</option><option>Jerónimo Martins</option><option>EDP Comercial</option>
+            <option>Galp Energia</option><option>Altice Portugal</option>
+            <option>+ Novo cliente…</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Categoria</label>
+          <select id="cr-cat" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm" onchange="updateCRTocHint()">
+            <option data-toc="true">Vendas produtos</option>
+            <option data-toc="true">Serviços prestados</option>
+            <option data-toc="false">Outros rendimentos (local)</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-600">Data documento</label>
+          <input type="date" value="2026-04-11" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Vencimento</label>
+          <input type="date" value="2026-05-11" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Valor</label>
+          <input type="number" step="0.01" placeholder="0,00" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm mono text-right">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Descrição</label>
+        <input placeholder="Ref./descrição" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div class="border-t border-slate-200 pt-3">
+        <label class="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <input type="checkbox" id="cr-rec" onchange="document.getElementById('cr-rec-opts').classList.toggle('hidden', !this.checked)"> Recorrente
+        </label>
+        <div id="cr-rec-opts" class="hidden grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+          <div>
+            <label class="text-xs font-medium text-slate-600">Frequência</label>
+            <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm"><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-600">Início</label>
+            <input type="date" value="2026-04-11" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-600">Fim (opcional)</label>
+            <input type="date" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+          </div>
+        </div>
+      </div>
+      <div id="cr-toc-hint" class="text-xs p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800">
+        <strong>Sincroniza TOConline:</strong> ao gravar, será criada a fatura via <span class="mono">POST /commercial_sales_documents</span>
+      </div>
+    </div>
+  `, () => toast('Conta a Receber criada', 'success'), { confirmLabel: 'Criar' });
+}
+
+function updateCRTocHint() {
+  const sel = document.getElementById('cr-cat');
+  const isToc = sel.options[sel.selectedIndex].dataset.toc === 'true';
+  const hint = document.getElementById('cr-toc-hint');
+  if (isToc) {
+    hint.className = 'text-xs p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800';
+    hint.innerHTML = '<strong>Sincroniza TOConline:</strong> ao gravar, será criada a fatura via <span class="mono">POST /commercial_sales_documents</span>';
+  } else {
+    hint.className = 'text-xs p-3 bg-slate-100 border border-slate-300 rounded-lg text-slate-700';
+    hint.innerHTML = '<strong>Apenas local:</strong> esta categoria não envia para o TOConline. A entrada fica gravada na BD partilhada.';
+  }
+}
+
+function updateCPTocHint() {
+  const sel = document.getElementById('cp-cat');
+  const isToc = sel.options[sel.selectedIndex].dataset.toc === 'true';
+  const hint = document.getElementById('cp-toc-hint');
+  if (isToc) {
+    hint.className = 'text-xs p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800';
+    hint.innerHTML = '<strong>Sincroniza TOConline:</strong> ao gravar, será criada a compra via <span class="mono">POST /commercial_purchases_documents</span>';
+  } else {
+    hint.className = 'text-xs p-3 bg-slate-100 border border-slate-300 rounded-lg text-slate-700';
+    hint.innerHTML = '<strong>Apenas local:</strong> esta categoria (salários, rendas, IRS…) fica só na BD partilhada, não vai para o TOConline.';
+  }
+}
+
+function viewPDF(ref) { toast(`A descarregar PDF · ${ref}`, 'info'); }
+
+function sendInvoiceEmail(ref, entity) {
+  openModal('Enviar fatura por email', `
+    <div class="space-y-3">
+      <div class="text-xs text-slate-500">Documento</div>
+      <div class="text-sm font-medium">${ref} · ${entity}</div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Para</label>
+        <input value="financeiro@${entity.toLowerCase().replace(/[^a-z]/g,'')}.pt" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Assunto</label>
+        <input value="Fatura ${ref}" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Mensagem</label>
+        <textarea rows="4" class="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">Em anexo segue a fatura para vossa referência.\n\nCumprimentos,</textarea>
+      </div>
+    </div>
+  `, () => toast(`Email enviado · ${ref}`, 'success'), { confirmLabel: 'Enviar' });
+}
+
+function sendReminder(ref, entity) {
+  openModal('Enviar lembrete de pagamento', `
+    <div class="space-y-3">
+      <div class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
+        <strong>${ref}</strong> está vencida. Vai ser enviado um lembrete educado a ${entity}.
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Tom</label>
+        <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+          <option>Cordial (1º lembrete)</option><option>Firme (2º lembrete)</option><option>Final (pré-jurídico)</option>
+        </select>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked> Anexar fatura em PDF</label>
+      <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox"> Enviar cópia para mim</label>
+    </div>
+  `, () => toast(`Lembrete enviado · ${ref}`, 'success'), { confirmLabel: 'Enviar' });
+}
+
+function exportTable(name) {
+  toast(`A exportar ${name} para Excel…`, 'info');
+  setTimeout(() => toast(`${name}.xlsx descarregado`, 'success'), 800);
+}
+
+function goReconcile(ref) {
+  toast(`A abrir Reconciliação com pré-seleção: ${ref}`, 'info');
+  nav('reconciliacao');
+}
+
+// ============ CONTAS A PAGAR ============
+function openNewPayable() {
+  openModal('Nova Conta a Pagar', `
+    <div class="space-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-600">Fornecedor</label>
+          <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+            <option>— Escolher —</option>
+            <option>NOS Comunicações</option><option>REN</option><option>Acme Tools, Lda</option>
+            <option>Autoridade Tributária</option><option>+ Novo fornecedor…</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Categoria</label>
+          <select id="cp-cat" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm" onchange="updateCPTocHint()">
+            <option data-toc="true">Compras materiais</option>
+            <option data-toc="true">Comunicações</option>
+            <option data-toc="false">Recursos Humanos (Salários) — local</option>
+            <option data-toc="false">Instalações (Rendas) — local</option>
+            <option data-toc="false">Impostos — local</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-600">Data documento</label>
+          <input type="date" value="2026-04-11" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Vencimento</label>
+          <input type="date" value="2026-05-11" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600">Valor</label>
+          <input type="number" step="0.01" placeholder="0,00" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm mono text-right">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600">Descrição</label>
+        <input placeholder="Ref./descrição" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div class="border-t border-slate-200 pt-3">
+        <label class="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <input type="checkbox" id="cp-rec" onchange="document.getElementById('cp-rec-opts').classList.toggle('hidden', !this.checked)"> Recorrente
+        </label>
+        <div id="cp-rec-opts" class="hidden grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+          <div>
+            <label class="text-xs font-medium text-slate-600">Frequência</label>
+            <select class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm"><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-600">Início</label>
+            <input type="date" value="2026-04-11" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-600">Fim (opcional)</label>
+            <input type="date" class="mt-1 w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+          </div>
+        </div>
+      </div>
+      <div id="cp-toc-hint" class="text-xs p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800">
+        <strong>Sincroniza TOConline:</strong> ao gravar, será criada a compra via <span class="mono">POST /commercial_purchases_documents</span>
+      </div>
+    </div>
+  `, () => toast('Conta a Pagar criada', 'success'), { confirmLabel: 'Criar' });
+}
+
+function openSchedule() {
+  openModal('Calendário de Pagamentos · próximas 4 semanas', `
+    <div class="space-y-3 text-sm">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="border border-slate-200 rounded-lg p-3">
+          <div class="text-xs uppercase text-slate-500 font-semibold">Semana 14/04 — 20/04</div>
+          <div class="mt-2 space-y-1.5">
+            <div class="flex justify-between"><span>NOS Comunicações</span><span class="mono text-red-700">€ 3.200</span></div>
+            <div class="flex justify-between"><span>Autoridade Tributária — IRS</span><span class="mono text-red-700">€ 12.400</span></div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-dashed border-slate-200 flex justify-between font-semibold">
+            <span>Total</span><span class="mono">€ 15.600</span>
+          </div>
+        </div>
+        <div class="border border-slate-200 rounded-lg p-3">
+          <div class="text-xs uppercase text-slate-500 font-semibold">Semana 21/04 — 27/04</div>
+          <div class="mt-2 space-y-1.5">
+            <div class="flex justify-between"><span>Salários equipa</span><span class="mono text-red-700">€ 48.000</span></div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-dashed border-slate-200 flex justify-between font-semibold">
+            <span>Total</span><span class="mono">€ 48.000</span>
+          </div>
+        </div>
+        <div class="border border-slate-200 rounded-lg p-3">
+          <div class="text-xs uppercase text-slate-500 font-semibold">Semana 28/04 — 04/05</div>
+          <div class="mt-2 space-y-1.5">
+            <div class="flex justify-between"><span>Renda escritório</span><span class="mono text-red-700">€ 4.500</span></div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-dashed border-slate-200 flex justify-between font-semibold">
+            <span>Total</span><span class="mono">€ 4.500</span>
+          </div>
+        </div>
+        <div class="border border-slate-200 rounded-lg p-3">
+          <div class="text-xs uppercase text-slate-500 font-semibold">Semana 05/05 — 11/05</div>
+          <div class="mt-2 space-y-1.5">
+            <div class="flex justify-between"><span>Acme Tools (parcial)</span><span class="mono text-red-700">€ 4.140</span></div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-dashed border-slate-200 flex justify-between font-semibold">
+            <span>Total</span><span class="mono">€ 4.140</span>
+          </div>
+        </div>
+      </div>
+      <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+        Total a pagar nas próximas 4 semanas: <strong>€ 72.240</strong>. Saldo previsto chega.
+      </div>
+    </div>
+  `, () => toast('Agenda guardada', 'success'), { confirmLabel: 'Fechar', hideConfirm: true });
+}
+
+// ============ RECONCILIAÇÃO — matching auto ============
+function autoMatch() {
+  toast('Matching automático: 3 sugestões com >95% confiança aplicadas, 2 com <95% deixadas para revisão', 'success');
+}</script>
+
+<!-- ============ GENERIC MODAL ============ -->
+<div id="app-modal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl my-8">
+    <div class="p-5 border-b border-slate-200 flex items-center justify-between">
+      <h3 id="gm-title" class="text-lg font-semibold">Modal</h3>
+      <button onclick="closeModal()" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center">
+        <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="gm-body" class="p-5"></div>
+    <div class="border-t border-slate-200 bg-slate-50 px-5 py-4 flex items-center justify-end gap-2">
+      <button id="gm-cancel" onclick="closeModal()" class="h-10 px-5 border border-slate-300 rounded-lg text-sm">Cancelar</button>
+      <button id="gm-confirm" onclick="confirmModal()" class="h-10 px-5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TOAST STACK ============ -->
+<div id="toast-stack" class="fixed top-4 right-4 z-[60] flex flex-col gap-2 max-w-sm pointer-events-none [&>*]:pointer-events-auto"></div>
+
+</body>
+</html>

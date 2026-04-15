@@ -1,0 +1,17 @@
+{
+    "name": "mapa-tesouraria-v3",
+    "private": true,
+    "version": "0.1.0",
+    "workspaces": [
+        "apps/*"
+    ],
+    "scripts": {
+        "p": "npx concurrently \"npm run dev:api\" \"npm run dev:web\"",
+        "dev": "npm run p",
+        "dev:api": "npm run dev -w @tesouraria/api",
+        "dev:web": "npm run dev -w @tesouraria/web",
+        "start:web": "npm run start -w @tesouraria/web",
+        "build": "npm run build -ws",
+        "lint": "npm run lint -ws"
+    }
+}

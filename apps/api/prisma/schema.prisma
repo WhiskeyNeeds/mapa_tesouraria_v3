@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TreasuryDocOrigin {
+  TOCONLINE
+  LOCAL
+}
+
+enum TreasuryDocStatus {
+  OPEN
+  PARTIAL
+  SETTLED
+  VOID
+}
+
+enum TreasuryCategoryType {
+  REVENUE
+  EXPENSE
+}
+
+model TreasuryCategory {
+  id           String              @id @default(cuid())
+  name         String
+  type         TreasuryCategoryType
+  launchToc    Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  receivables  TreasuryReceivable[]
+  payables     TreasuryPayable[]
+
+  @@map("treasury_categories")
+}
+
+model TreasuryBankAccount {
+  id           String   @id @default(cuid())
+  name         String
+  ibanMasked   String
+  currentSaldo Decimal  @db.Decimal(18, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("treasury_bank_accounts")
+}
+
+model TreasuryReceivable {
+  id          String            @id @default(cuid())
+  reference   String
+  entityName  String
+  totalAmount Decimal           @db.Decimal(18, 2)
+  pending     Decimal           @db.Decimal(18, 2)
+  origin      TreasuryDocOrigin
+  status      TreasuryDocStatus @default(OPEN)
+  categoryId  String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  category    TreasuryCategory  @relation(fields: [categoryId], references: [id])
+
+  @@map("treasury_receivables")
+}
+
+model TreasuryPayable {
+  id          String            @id @default(cuid())
+  reference   String
+  entityName  String
+  totalAmount Decimal           @db.Decimal(18, 2)
+  pending     Decimal           @db.Decimal(18, 2)
+  origin      TreasuryDocOrigin
+  status      TreasuryDocStatus @default(OPEN)
+  categoryId  String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  category    TreasuryCategory  @relation(fields: [categoryId], references: [id])
+
+  @@map("treasury_payables")
+}
